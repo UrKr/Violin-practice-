@@ -18,6 +18,13 @@ Hosted on GitHub Pages from the `main` branch. Changes should be committed to `m
 - **Extras:** tuning reference A=438–445, half-speed playback (WSOLA time-stretch, pitch kept),
   "Hear it" synth of the target, pitch curve view, live tuner, tempo ladder (speeds up after N clean
   takes), progress per exercise by day, drone (tonic + fifth), share take (WAV + PNG via Web Share API).
+- **Playback & feedback:** the note being played is highlighted, with a length bar (written vs held).
+  Written feedback under the sheet (sharp/flat notes, too long/short notes, wrong/missed notes).
+  Settings → Feedback switches: written feedback, intonation, rhythm, highlight while playing.
+- **Set as target:** turns a take's transcription (notes as written, octaves only where needed) into
+  target notes, via the target panel so it can be edited or saved as an exercise.
+- **Pedal:** optional (Settings → Pedal). Bluetooth page turners act as keyboards: right pedal
+  (→ ↓ PageDown Space Enter) = the big button, left pedal (← ↑ PageUp) = play the take again.
 
 ## Important details
 - **iPhone:** while the mic is open, iOS routes audio to the earpiece. The app closes the mic before
