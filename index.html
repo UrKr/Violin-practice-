@@ -227,6 +227,17 @@ body.zen .sheet, body.zen .routine, body.zen #toast{display:none !important}
 .trend b{align-self:center; margin-left:8px; color:var(--ink); font-variant-numeric:tabular-nums}
 .focus{margin-top:2px; background:color-mix(in srgb, var(--line) 75%, var(--bg))}
 .focus button{padding:6px 11px; font-size:.84rem}
+/* what to fix: numbered rows, the number also above the note on the staff */
+.fix{list-style:none; margin:6px 0 4px; padding:0; display:flex; flex-direction:column; gap:4px}
+.fix li{display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:10px; background:var(--bg); font-size:.9rem; line-height:1.35; color:var(--ink); word-spacing:normal}
+.fix .num{flex:none; width:22px; height:22px; border-radius:50%; display:grid; place-items:center; font-size:.74rem; font-weight:700; color:#fff; background:var(--muted)}
+.fix .fx-bad .num{background:var(--rec)} .fix .fx-tune .num{background:var(--listen)} .fix .fx-miss .num{background:var(--muted)}
+.fix .fx-gen .num, .fix .fx-more .num{background:transparent; color:var(--muted); font-size:.95rem}
+.fix .nm{flex:none; font-weight:650; min-width:2.7em; font-variant-numeric:tabular-nums; color:var(--ink)}
+.fix .what{flex:1; min-width:0}
+.fix .what small{color:var(--muted)}
+.fix .freq{color:var(--muted); font-size:.78rem; white-space:nowrap}
+.goods{display:flex; flex-wrap:wrap; gap:4px 14px; color:var(--ok); font-weight:600; font-size:.86rem; margin:6px 2px 2px}
 .genhint{color:var(--muted); font-size:.78rem; margin-top:6px}
 .ear-wait{text-align:center; padding:22px 8px 10px; color:var(--muted)}
 .ear-wait b{display:block; color:var(--ink); font-size:1.05rem; font-weight:600; margin-bottom:4px}
@@ -2069,6 +2080,43 @@ function stretch(x, rate){
       .map(x=>item('tune','<b>'+INTERVAL_NAMES[x.s]+'</b> '+Math.round(Math.abs(x.m))+' cents '+(x.m>0?'wide':'narrow')+' <small>×'+x.n+'</small>'));
   }
   const fbBox=items=>items.length ? '<div class="feedback">'+items.map(x=>'<span class="fi c-'+x.c+'-dot">'+x.html+'</span>').join('')+'</div>' : '';
+  // ---- what to fix, readable: one numbered row per note (the same number sits above the note on the
+  // staff), in plain words; wrong / missed notes first, then rhythm, then tuning; then general points
+  // (intervals, extra notes) and a line for what went well ----
+  const pctTxt=p=>Math.abs(Math.round(p))+'%';
+  function fixList(rows, general=[], goods=[]){
+    const by=new Map();
+    for(const r of rows){ const g=by.get(r.i); if(g){ g.parts.push(r.part); if(r.sev<g.sev){ g.sev=r.sev; g.cls=r.cls; } g.freq=Math.max(g.freq||0, r.freq||0); } else by.set(r.i,{...r, parts:[r.part]}); }
+    const list=[...by.values()].sort((a,b)=>a.sev-b.sev || a.i-b.i), nums={};
+    list.forEach((g,k)=>nums[g.i]=k+1);
+    const shown=list.slice(0,8);
+    let html='';
+    if(shown.length || general.length){
+      html='<ol class="fix">'+shown.map(g=>'<li class="fx-'+g.cls+'"><span class="num">'+nums[g.i]+'</span><span class="nm">'+g.name+'</span><span class="what">'+g.parts.join(' · ')+'</span>'+(g.freqTxt?'<span class="freq">'+g.freqTxt+'</span>':'')+'</li>').join('')
+        +(list.length>shown.length?'<li class="fx-more"><span class="num">…</span><span class="what">'+(list.length-shown.length)+' more</span></li>':'')
+        +general.map(x=>'<li class="fx-gen fx-'+x.cls+'"><span class="num">'+(x.icon||'•')+'</span><span class="what">'+x.html+'</span></li>').join('')+'</ol>';
+    }
+    if(goods.length) html+='<div class="goods">'+goods.map(g=>'<span>✓ '+g+'</span>').join('')+'</div>';
+    return {html, nums};
+  }
+  // what to fix in a take without target notes (tuning per note, held lengths)
+  function notesFix(t, lens){
+    if(!fb.text || !t.notes || !t.notes.length) return {html:'', nums:{}};
+    const key=t.key, rows=[], general=[], goods=[];
+    if(fb.tune){
+      t.notes.forEach((n,i)=>{ const c=devC(n.midi,n.cents,key); if(Math.abs(c)>=20) rows.push({i, name:noteName(n.midi,key), cls:'tune', sev:2, part:Math.abs(c)+' cents '+(c>0?'sharp':'flat')}); });
+      intervalItems(t.notes, key).forEach(x=>general.push({cls:'tune', html:x.html, icon:'↔'}));
+      if(!rows.length) goods.push('In tune');
+    }
+    if(fb.rhythm && lens && t.notes.length>=3){
+      let any=false;
+      lens.forEach((L,i)=>{ const r=L.a/L.w; if(L.free || Math.abs(r-1)<0.25) return; any=true;
+        rows.push({i, name:noteName(t.notes[i].midi,key), cls:'bad', sev:1, part:'held '+pctTxt((r-1)*100)+(r>1?' too long':' too short')}); });
+      if(!any) goods.push('Even note lengths');
+    }
+    return fixList(rows, general, goods);
+  }
+
   function feedbackHTML(t, lens){
     if(!fb.text || !t.notes || !t.notes.length) return '';
     const key=t.key, items=[];
@@ -2106,20 +2154,22 @@ function stretch(x, rate){
     per.forEach((P,i)=>{
       const nm='<b>Note '+(i+1)+'</b> '+nm2(tt.notes[i],key,'ink');
       if(P.nWrong){ const [pl]=Object.entries(P.wrong).sort((a,b)=>b[1]-a[1])[0];
-        issues.push({i, c:'bad', w:3*P.nWrong/K, n:P.nWrong, html:nm+' played as <span class="c-bad">'+pl+'</span>'}); }
-      if(P.missed) issues.push({i, c:'miss', w:3*P.missed/K, n:P.missed, html:nm+' missed'});
+        issues.push({i, c:'bad', w:3*P.nWrong/K, n:P.nWrong, html:nm+' played as <span class="c-bad">'+pl+'</span>', part:'played as <span class="c-bad">'+pl+'</span>', sev:0}); }
+      if(P.missed) issues.push({i, c:'miss', w:3*P.missed/K, n:P.missed, html:nm+' missed', part:'missed', sev:0});
       // intonation: only when it's off in the same direction most of the time
       if(fb.tune && P.cents.length>=2){
         const m=avg(P.cents), off=P.cents.filter(c=>Math.abs(c)>=20 && Math.sign(c)===Math.sign(m)).length;
-        if(Math.abs(m)>=12 && off>=Math.max(2,K*0.4)) issues.push({i, c:'tune', w:1.5*off/K*Math.min(2,Math.abs(m)/20), n:off,
-          html:nm+' '+(m>0?'sharp':'flat')+', '+(m>0?'+':'−')+Math.round(Math.abs(m))+' on average'});
+        if(Math.abs(m)>=12 && off>=Math.max(2,K*0.4)) issues.push({i, c:'tune', w:1.5*off/K*Math.min(2,Math.abs(m)/20), n:off, sev:2,
+          html:nm+' '+(m>0?'sharp':'flat')+', '+(m>0?'+':'−')+Math.round(Math.abs(m))+' on average',
+          part:Math.round(Math.abs(m))+' cents '+(m>0?'sharp':'flat')+' on average'});
       }
       for(const [k,label] of [['long','held too long'],['short','cut short'],['early','early'],['late','late']]){
         const a=P[k]; if(a.length>=Math.max(2,K*0.4))
-          issues.push({i, c:'bad', w:2*a.length/K, n:a.length, html:nm+' '+label+(k==='long'||k==='short' ? ', '+sgn(Math.round(avg(a)))+'%' : '')});
+          issues.push({i, c:'bad', w:2*a.length/K, n:a.length, sev:1, html:nm+' '+label+(k==='long'||k==='short' ? ', '+sgn(Math.round(avg(a)))+'%' : ''),
+            part: k==='long'||k==='short' ? 'held '+pctTxt(avg(a))+(k==='long'?' too long':' too short') : 'comes '+k});
       }
     });
-    if(extra>=2) issues.push({i:-1, c:'ink', w:extra/K, n:extra, html:'<b>Extra notes</b> '+extra+' in all'});
+    if(extra>=2) issues.push({i:-1, c:'ink', w:extra/K, n:extra, html:'<b>Extra notes</b> '+extra+' in all', part:extra+' extra notes in all'});
     issues.sort((a,b)=>b.w-a.w);
     issues.forEach(x=>{ if(x.i>=0 && !noteIssue[x.i]) noteIssue[x.i]=x; });
     return {K, list, issues, noteIssue, right, n, key};
@@ -2131,16 +2181,39 @@ function stretch(x, rate){
     $('firstnote').hidden=true; $('sheetMeta').innerHTML=segHTML(t);
     const col={bad:css('--rec'), tune:css('--listen'), miss:css('--muted'), ink:css('--ink')};
     // the target, each note coloured by its most important recurring problem (green: fine every time)
-    const ev=tt.notes.map((m,i)=>({midi:m, s:tSpan(tt,i)[0], e:tSpan(tt,i)[1], above: S.noteIssue[i] ? S.noteIssue[i].n+'/'+S.K : ''}));
+    // rows: each note's recurring problems, ordered by how much they matter overall
+    const rank=new Map(); S.issues.forEach((x,k)=>{ if(x.i>=0 && !rank.has(x.i)) rank.set(x.i,k); });
+    const rows=S.issues.filter(x=>x.i>=0).map(x=>({i:x.i, name:noteName(tt.notes[x.i],S.key), cls:x.c, sev:rank.get(x.i), part:x.part+' <small>('+x.n+'/'+S.K+')</small>', freq:x.n}));
+    const FX=fixList(rows, S.issues.filter(x=>x.i<0).map(x=>({cls:'ink', icon:'+', html:x.part})), rows.length?[]:['No mistake keeps coming back in these '+S.K+' takes']);
+    const ev=tt.notes.map((m,i)=>({midi:m, s:tSpan(tt,i)[0], e:tSpan(tt,i)[1], above: FX.nums[i] ? String(FX.nums[i]) : ''}));
     hl=null;
     drawStaff(ev, S.key, tt.notes.map((m,i)=>({color: S.noteIssue[i] ? col[S.noteIssue[i].c] : css('--ok')})), tBeats(tt));
-    const top=S.issues.slice(0,6);
-    const items = top.length ? top.map(x=>item(x.c, x.html+' <small>'+x.n+' of '+S.K+' takes</small>'))
-      : [item('ok','<b>No mistake keeps coming back</b> in these '+S.K+' takes')];
     const trend='<div class="trend"><span>Right notes per take</span>'+S.right.map((v,i)=>'<i title="Take '+S.list[i].id+': '+v+' of '+S.n+'" style="height:'+Math.max(8,Math.round(100*v/S.n))+'%;background:'+(v===S.n?'var(--ok)':'var(--line2)')+'"></i>').join('')+'<b>'+S.right[S.right.length-1]+'/'+S.n+'</b></div>';
-    $('notelist').innerHTML=fbBox(items)+trend;
+    $('notelist').innerHTML=FX.html+trend;
   }
 
+  function targetFix(r, key, R, played, tt){
+    if(!fb.text) return {html:'', nums:{}};
+    const rows=[], general=[], goods=[], nm0=i=>noteName(r.items[i].midi,key);
+    r.items.forEach((it,i)=>{
+      if(it.status==='wrong') rows.push({i, name:nm0(i), cls:'bad', sev:0, part:'you played <span class="c-bad">'+noteName(it.played.midi,key)+'</span>'});
+      else if(it.status==='missed') rows.push({i, name:nm0(i), cls:'miss', sev:0, part:'missed'});
+      else if(it.status==='tune') rows.push({i, name:nm0(i), cls:'tune', sev:2, part:Math.abs(it.cents)+' cents '+(it.cents>0?'sharp':'flat')});
+    });
+    if(R) R.flags.forEach(f=>rows.push({i:f.i, name:nm0(f.i), cls:'bad', sev:1,
+      part: f.pct!==undefined ? 'held '+pctTxt(f.pct)+(f.kind==='long'?' too long':' too short') : beatsTxt(f.beats)+(f.kind==='early'?' early':' late')}));
+    if(r.extra) general.push({cls:'ink', icon:'+', html:r.extra+' extra note'+(r.extra>1?'s':'')+' played'});
+    if(fb.tune && played) intervalItems(played, key).forEach(x=>general.push({cls:'tune', icon:'↔', html:x.html}));
+    if(tt && sameTargetTakes(tt).length>=3){
+      const S=summarize(tt), x=S.issues[0];
+      if(x) general.push({cls:x.c, icon:'↻', html:'<b>Most often:</b> '+noteName(tt.notes[x.i]??0,key)+' '+x.part+' <small>('+x.n+' of '+S.K+' takes, see Summary)</small>'});
+    }
+    const right=r.items.filter(it=>it.status==='ok'||it.status==='tune').length;
+    if(right===r.items.length && !r.extra) goods.push('Every note right');
+    if(fb.tune && !rows.some(x=>x.cls==='tune') && right) goods.push('In tune');
+    if(R && !R.flags.length) goods.push('Rhythm right');
+    return fixList(rows, general, goods);
+  }
   function targetFeedbackHTML(r, key, R, played, tt){
     if(!fb.text) return '';
     const items=[];
@@ -2188,6 +2261,8 @@ function stretch(x, rate){
     if(!t.metro && firstVal==='auto' && autoBpm.checked) bpm.value=t.bpm;
     const {tempo, beats, q, lens, unfit} = rhythmOf(t);
     const lay = sheetLayout(paper), map=[];
+    const FX=notesFix(t, lens);
+    q.forEach((e,i)=>{ if(FX.nums[i]) e.above=String(FX.nums[i]); });
     const abc = toAbc(q, tempo, clefFor(q.map(e=>e.midi)), lay.bars, t.key, beats, map); lastAbc=abc;
     const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
     paper.innerHTML='';
@@ -2196,7 +2271,7 @@ function stretch(x, rate){
     } else paper.innerHTML='<div class="sheet-empty">The notation library didn’t load. Check your connection and reload the page.</div>';
     $('sheetKey').textContent = keyLabel(t.key)+' · '+tempo+' bpm'+(unfit?' (first-note length doesn’t fit: auto)':'');
     meta.innerHTML=segHTML(t);
-    list.innerHTML = feedbackHTML(t, lens) + t.notes.map(n=>{
+    list.innerHTML = FX.html + t.notes.map(n=>{
       const c=devC(n.midi,n.cents,t.key), off=fb.tune && Math.abs(c)>=20, tip=off?(c>0?' sharp':' flat'):'';
       return `<span class="${off?(c>0?'sharp':'flat'):''}" title="${c>0?'+':''}${c} cents${tip}">${noteName(n.midi,t.key)}${off?(c>0?'↑':'↓'):''}</span>`;
     }).join(' ') + '<div>'+ASTARGET+SHARE+'</div>';
@@ -2339,8 +2414,9 @@ function stretch(x, rate){
     const key=keyOf(r.items.map(x=>x.midi));
     const R=fb.rhythm ? targetRhythm(t, r) : null;
     if(R && R.spb) lastTargetSpb[tt.str]=R.spb;
+    const FX=targetFix(r, key, R, t.notes, tt);
     const ev=r.items.map((it,i)=>({midi:it.midi, s:tSpan(tt,i)[0], e:tSpan(tt,i)[1],
-      above: it.status==='tune' ? (it.cents>0?'↑':'↓') : '',
+      above: FX.nums[i] ? String(FX.nums[i]) : '',
       below: it.status==='wrong' ? noteName(it.played.midi,key) : ''}));
     const col={ok:css('--ok'), tune:css('--listen'), wrong:css('--rec'), missed:css('--muted')};
     const els=drawStaff(ev, key, r.items.map(it=>({color:col[it.status], faint:it.status==='missed'})), tBeats(tt));
@@ -2356,7 +2432,7 @@ function stretch(x, rate){
       if(cnt.missed) html+=dot(col.missed, cnt.missed+' missed');
       if(r.extra) html+=dot(css('--ink'), r.extra+' extra');
     }
-    $('notelist').innerHTML='<div class="score">'+html+'</div>'+targetFeedbackHTML(r, key, R, t.notes, tt)+HEAR+SHARE;
+    $('notelist').innerHTML='<div class="score">'+html+'</div>'+FX.html+HEAR+SHARE;
     t.lastSummary=(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+(cnt.tune?', '+cnt.tune+' out of tune':'')+(cnt.wrong?', '+cnt.wrong+' wrong':'')+(cnt.missed?', '+cnt.missed+' missed':'');
     makeShareImage();
   }
