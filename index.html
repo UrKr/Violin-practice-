@@ -4,6 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Play it back</title>
+<meta name="description" content="Hands-free violin practice: play, hear it back, see the notes, intonation and rhythm.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#F3F4F1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1311" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Play it back">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -57,9 +68,22 @@ details.settings[open] > summary{color:var(--ink); background:var(--surface)}
   box-shadow:var(--shadow-lg)}
 .wrap{position:relative}
 .set{display:grid; grid-template-columns:7.8em 1fr 3.4em; align-items:center; gap:10px; margin-bottom:12px; font-size:.9rem; font-weight:500}
-.sgroup{font-size:.7rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted);
-  margin:16px 0 10px; padding-top:14px; border-top:1px solid var(--line)}
-.sgroup:first-child{margin-top:0; padding-top:0; border-top:none}
+.sgroup{font-size:.7rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:0 0 10px}
+.sgrp{margin-top:16px; padding-top:14px; border-top:1px solid var(--line)}
+.sgrp:first-child{margin-top:0; padding-top:0; border-top:none}
+.set .check .share{margin:0}
+/* Wide screens: two columns. Left: the big button and the settings you change while practising;
+   right: the music. (The rarely changed settings stay behind the settings button.) */
+@media (min-width:1100px){
+  main{max-width:1260px}
+  .wrap{max-width:none}
+  .wrap .panel{left:auto; right:0; width:440px; max-width:none}
+  .layout{display:grid; grid-template-columns:380px minmax(0,1fr); gap:32px; align-items:start; margin-top:10px}
+  .stage{margin-top:6px}
+  .dock{background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:18px 18px 6px; box-shadow:var(--shadow)}
+  .dock .set{grid-template-columns:7.2em 1fr 3.4em}
+  .content .toast{max-width:none}
+}
 .set output{color:var(--muted); text-align:right; font-variant-numeric:tabular-nums; font-size:.9rem}
 .set input[type=range]{width:100%; accent-color:var(--play); height:28px; margin:0}
 .set input[type=range]:disabled{opacity:.35}
@@ -236,10 +260,13 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
       <details class="settings" id="settings">
         <summary aria-label="Settings"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></summary>
         <div class="panel">
+          <section class="sgrp" id="grpListening" data-dock>
           <div class="sgroup">Listening</div>
           <div class="set"><label for="thr">Sensitivity</label><input type="range" id="thr" min="0.15" max="0.9" step="0.01" value="0.45"><output id="thrVal"></output></div>
           <div class="set"><label for="sil">Stop after</label><input type="range" id="sil" min="0.5" max="5" step="0.1" value="1.5"><output id="silVal"></output></div>
           <div class="set"><label for="rep">Repeat</label><input type="range" id="rep" min="0" max="4" step="1" value="1"><output id="repVal"></output></div>
+          </section>
+          <section class="sgrp" id="grpTempo">
           <div class="sgroup">Tempo</div>
           <div class="set"><label for="ladder">Speed up</label>
             <select id="ladder"><option value="0">Off</option><option value="2">After 2 clean takes</option><option value="3">After 3 clean takes</option><option value="5">After 5 clean takes</option></select></div>
@@ -249,6 +276,8 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
             <select id="bpb"><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option></select></div>
           <div class="set"><label for="bpm">Tempo</label><input type="range" id="bpm" min="40" max="200" step="1" value="90"><output id="bpmVal"></output></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="autoBpm" checked> Detect from my playing</label></div>
+          </section>
+          <section class="sgrp" id="grpPitch" data-dock>
           <div class="sgroup">Pitch</div>
           <div class="set"><label for="tuning">Tuning</label>
             <select id="tuning"><option value="438">A = 438</option><option value="439">A = 439</option><option value="440" selected>A = 440</option><option value="441">A = 441</option><option value="442">A = 442</option><option value="443">A = 443</option><option value="444">A = 444</option><option value="445">A = 445</option></select></div>
@@ -263,15 +292,22 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
               <option value="bass">Bass</option>
               <option value="guitar">Guitar</option>
             </select></div>
+          </section>
+          <section class="sgrp" id="grpFeedback" data-dock>
           <div class="sgroup">Feedback</div>
           <div class="set"><span>Show</span><label class="check"><input type="checkbox" id="fbText" checked> Written feedback</label></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbTune" checked> Intonation</label></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbRhythm" checked> Rhythm (note lengths)</label></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbFollow" checked> Highlight while playing</label></div>
+          </section>
+          <section class="sgrp" id="grpControls">
           <div class="sgroup">Controls</div>
           <div class="set"><label for="pedal">Pedal</label>
             <select id="pedal"><option value="off">Off</option><option value="on">Bluetooth pedal or keyboard</option></select></div>
           <div class="set" id="pedalHint" hidden><span></span><span class="check">Right pedal: start, finish a take, skip playback. Left pedal: play the take again.</span></div>
+          <div class="set" id="installRow" hidden><span>App</span><span class="check"><button class="share" id="installBtn">Install on this device</button></span></div>
+          <div class="set" id="iosHint" hidden><span>App</span><span class="check">To install: tap Share, then Add to Home Screen.</span></div>
+          </section>
           <input type="checkbox" id="auto" checked hidden>
         </div>
       </details>
@@ -308,6 +344,8 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
     </form>
   </dialog>
 
+  <div class="layout">
+  <div class="side">
   <div class="stage" id="stage">
     <div class="orbbox">
       <button class="orb idle" id="orb" aria-label="Start">
@@ -328,6 +366,9 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
     <div class="dots" id="dots" aria-hidden="true"></div>
     <canvas id="meter" aria-hidden="true"></canvas>
   </div>
+  <aside class="dock" id="dock" hidden aria-label="Practice settings"></aside>
+  </div>
+  <div class="content">
 
   <div class="toast" id="toast" hidden role="status"></div>
   <section class="sheet" id="sheet" aria-live="polite">
@@ -346,6 +387,8 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
   </section>
 
   <div class="takes" id="takes"></div>
+  </div>
+  </div>
   <button id="clear" hidden></button>
 </main>
 
@@ -1804,6 +1847,32 @@ function stretch(x, rate){
     if(state==='recording' && ac) timer.textContent=fmt(ac.currentTime-recStart);
     requestAnimationFrame(draw);
   }
+  // ---- wide screens: the practice settings sit in the main window ----
+  const wideMQ=matchMedia('(min-width: 1100px)');
+  function placeSettings(){
+    const dock=$('dock'), panel=$('settings').querySelector('.panel');
+    if(wideMQ.matches){
+      document.querySelectorAll('.sgrp[data-dock]').forEach(g=>dock.appendChild(g));
+      dock.hidden=false;
+    } else {
+      ['grpListening','grpTempo','grpPitch','grpFeedback','grpControls'].forEach(id=>panel.insertBefore($(id),$('auto')));
+      dock.hidden=true;
+    }
+  }
+  wideMQ.addEventListener ? wideMQ.addEventListener('change',placeSettings) : wideMQ.addListener(placeSettings);
+  placeSettings();
+
+  // ---- install as an app ----
+  let installEvt=null;
+  window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); installEvt=e; $('installRow').hidden=false; });
+  $('installBtn').onclick=async()=>{ if(!installEvt) return; installEvt.prompt(); try{ await installEvt.userChoice; }catch(e){} installEvt=null; $('installRow').hidden=true; };
+  window.addEventListener('appinstalled',()=>{ $('installRow').hidden=true; toast('Installed. Open it from your home screen or app list.'); });
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone===true;
+  const iOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+  if(iOS && !standalone) $('iosHint').hidden=false;
+  if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost'))
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+
   setState('idle'); pedalSync(); renderSheet(); renderMetro(); restoreTakes();
   requestAnimationFrame(draw);
 })();

@@ -26,6 +26,18 @@ Hosted on GitHub Pages from the `main` branch. Changes should be committed to `m
 - **Pedal:** optional (Settings → Pedal). Bluetooth page turners act as keyboards: right pedal
   (→ ↓ PageDown Space Enter) = the big button, left pedal (← ↑ PageUp) = play the take again.
 
+## Installable app (PWA)
+`manifest.webmanifest`, `sw.js` and `icons/` make it installable from GitHub Pages (all paths relative,
+so it works under `/Violin-practice-/`). The service worker fetches the page network-first (updates
+show up straight away, cached copy offline) and caches the pinned CDN files (abcjs, fonts) on first
+use. Bump `CACHE` in `sw.js` only if the list of shell files changes. Icons are rendered from
+`icons/icon.svg` (maskable variant keeps the glyph in the safe zone).
+
+## Layout
+Phones: one column, all settings behind the settings button. At 1100px and wider: two columns; the
+Listening, Pitch and Feedback setting groups (`.sgrp[data-dock]`) are moved into the main window
+under the big button (`placeSettings()`), Tempo and Controls stay in the menu.
+
 ## Important details
 - **iPhone:** while the mic is open, iOS routes audio to the earpiece. The app closes the mic before
   playback and reopens it afterwards (`micOff` / `micOn`, `navigator.audioSession`). Keep this.
