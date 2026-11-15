@@ -32,7 +32,9 @@ html,body{margin:0}
 body{background:var(--bg); color:var(--ink);
   font-family:"Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size:17px; line-height:1.4; -webkit-tap-highlight-color:transparent}
-main{max-width:520px; margin:0 auto; padding:14px 18px 32px}
+main{max-width:1100px; margin:0 auto; padding:14px 18px 32px}
+/* the controls stay a phone-sized column; the sheet music uses the width there is */
+.wrap,.err,.toast{max-width:484px; margin-left:auto; margin-right:auto}
 button{font:inherit; color:inherit; cursor:pointer}
 button:focus-visible, summary:focus-visible, select:focus-visible, input:focus-visible{outline:2px solid var(--ink); outline-offset:3px}
 
@@ -600,6 +602,16 @@ function toAbc(ev,bpm,mode,barsPerLine,key,beats,map){
   // end the last note at the barline rather than tying a short bit into a new bar
   if(ev.length){ const L=ev[ev.length-1], barEnd=Math.ceil((L.s+1)/BAR)*BAR, over=L.e-barEnd;
     if(over>0 && over<=(L.e-L.s)/2) L.e=barEnd; }
+  // Spread the bars evenly over as few lines as needed (6 bars at 4 per line: 3 + 3, not 4 + 2),
+  // and stretch the last line across the width when it's at least half full, so a short take
+  // isn't squeezed into the left half of the staff.
+  let stretch=false;
+  if(ev.length){
+    const B=Math.max(1,Math.ceil(Math.max(...ev.map(e=>e.e))/BAR)), lines=Math.ceil(B/barsPerLine);
+    barsPerLine=Math.ceil(B/lines);
+    const lastBars=B-(lines-1)*barsPerLine;
+    stretch = lastBars*2>=barsPerLine;
+  }
   const q=x=>x.replace(/"/g,"'");
   for(const [i,e] of ev.entries()){ if(e.s>pos) segment(e.s-pos,null);
     evIdx=i;
@@ -607,7 +619,7 @@ function toAbc(ev,bpm,mode,barsPerLine,key,beats,map){
     segment(e.e-e.s,e.midi); }
   if(pos%BAR) segment(BAR-(pos%BAR),null);
   body=body.trim().replace(/\|\s*$/,'')+'|]';
-  return `X:1\nM:${beats}/4\nL:1/16\nQ:1/4=${bpm}\nK:${key.name} clef=${clef}\n${body}\n`;
+  return `X:1\n${stretch?'%%stretchlast 1\n':''}M:${beats}/4\nL:1/16\nQ:1/4=${bpm}\nK:${key.name} clef=${clef}\n${body}\n`;
 }
 
 // ---- Target: notes typed by the player ----
@@ -1255,9 +1267,9 @@ function stretch(x, rate){
       tempo = autoBpm.checked ? t.bpm : +bpm.value;
       if(autoBpm.checked){ bpm.value=t.bpm; }
     }
-    const narrow = paper.clientWidth < 460;
+    const lay = sheetLayout(paper);
     const map=[], q=quantize(t.notes,exact||tempo,ref);
-    const abc = toAbc(q, tempo, clefSel.value, narrow?2:4, t.key, beats, map); lastAbc=abc;
+    const abc = toAbc(q, tempo, clefSel.value, lay.bars, t.key, beats, map); lastAbc=abc;
     // written length of each note vs. how long it was really held. A note runs until the next
     // one starts, unless the sheet has a rest after it; then it runs until its sound stops.
     const six=60/(exact||tempo)/4;
@@ -1267,7 +1279,7 @@ function stretch(x, rate){
     const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
     paper.innerHTML='';
     if(window.ABCJS){
-      ABCJS.renderAbc(paper, abc, {responsive:'resize', add_classes:true, foregroundColor:ink, staffwidth: Math.max(280, paper.clientWidth-10), paddingleft:0, paddingright:0, paddingtop:4});
+      ABCJS.renderAbc(paper, abc, {responsive:'resize', add_classes:true, foregroundColor:ink, staffwidth: lay.staffwidth, paddingleft:0, paddingright:0, paddingtop:4});
     } else paper.innerHTML='<div class="sheet-empty">The notation library didn’t load. Check your connection and reload the page.</div>';
     $('sheetKey').textContent = keyLabel(t.key);
     meta.innerHTML=segHTML(t);
@@ -1287,7 +1299,17 @@ function stretch(x, rate){
   }
   const keyLabel=k=>k ? k.name.replace('b','♭')+' major' : '';
   $('sheetMeta').addEventListener('click',e=>{ const b=e.target.closest('button[data-view]'); if(b){ sheetView=b.dataset.view; renderSheet(); } });
-  window.addEventListener('resize',()=>{ if(sheetView==='pitch' && shownTake) renderSheet(); });
+  // Use the room there is: on wider screens draw the music larger (easier to read on a stand)
+  // and fit more bars on a line. The SVG scales to the card, so a narrower staff = bigger notes.
+  function sheetLayout(paper){
+    const w=paper.clientWidth||320, zoom = w>=900 ? 1.35 : w>=640 ? 1.15 : 1;
+    const staffwidth=Math.max(280,(w-10)/zoom);
+    return {staffwidth, bars:Math.max(2,Math.min(6,Math.round(staffwidth/210)))};
+  }
+  let lastW=0, resizeT=null;
+  window.addEventListener('resize',()=>{ clearTimeout(resizeT); resizeT=setTimeout(()=>{
+    const w=$('paper').clientWidth||$('sheet').clientWidth;
+    if(sheetView==='pitch' || Math.abs(w-lastW)>40){ lastW=w; renderSheet(); } },200); });
 
   // The drawn note heads grouped by the event they belong to (a tied note has several).
   function noteGroups(paper, map){
@@ -1296,11 +1318,11 @@ function stretch(x, rate){
     return out;
   }
   function drawStaff(ev, key, colors){
-    const paper=$('paper'), narrow=paper.clientWidth<460, map=[];
-    let abc=toAbc(ev, 60, clefSel.value, narrow?2:4, key, 4, map).replace(/^Q:.*\n/m,''); lastAbc=abc;
+    const paper=$('paper'), lay=sheetLayout(paper), map=[];
+    let abc=toAbc(ev, 60, clefSel.value, lay.bars, key, 4, map).replace(/^Q:.*\n/m,''); lastAbc=abc;
     paper.innerHTML='';
     if(!window.ABCJS){ paper.innerHTML='<div class="sheet-empty">The notation library didn’t load. Check your connection and reload the page.</div>'; return []; }
-    ABCJS.renderAbc(paper, abc, {responsive:'resize', add_classes:true, foregroundColor:css('--ink'), staffwidth:Math.max(280,paper.clientWidth-10), paddingleft:0, paddingright:0, paddingtop:4});
+    ABCJS.renderAbc(paper, abc, {responsive:'resize', add_classes:true, foregroundColor:css('--ink'), staffwidth:lay.staffwidth, paddingleft:0, paddingright:0, paddingtop:4});
     if(colors){
       paper.querySelectorAll('.abcjs-note').forEach((g,i)=>{
         const c=colors[i]; if(!c) return;
