@@ -247,6 +247,9 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbTune" checked> Intonation</label></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbRhythm" checked> Rhythm (note lengths)</label></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbFollow" checked> Highlight while playing</label></div>
+          <div class="set"><label for="pedal">Pedal</label>
+            <select id="pedal"><option value="off">Off</option><option value="on">Bluetooth pedal or keyboard</option></select></div>
+          <div class="set" id="pedalHint" hidden><span></span><span class="check">Right pedal: start, finish a take, skip playback. Left pedal: play the take again.</span></div>
           <input type="checkbox" id="auto" checked hidden>
         </div>
       </details>
@@ -984,12 +987,13 @@ function stretch(x, rate){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
     if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
       if(s.manualBpm) bpm.value=s.manualBpm; if(typeof s.autoBpm==='boolean') autoBpm.checked=s.autoBpm; halfSpeed=!!s.half;
-      if(s.fb) for(const k in fb) if(typeof s.fb[k]==='boolean') fb[k]=s.fb[k]; }
+      if(s.fb) for(const k in fb) if(typeof s.fb[k]==='boolean') fb[k]=s.fb[k];
+      if(s.pedal) $('pedal').value=s.pedal; }
   }catch(e){}
   $('bpb').addEventListener('change',()=>{ metro.bpb=+$('bpb').value; renderMetro(); save(); });
   [thr,sil,rep,clefSel,bpm,autoBpm].forEach(el=>el.addEventListener('change',save));
@@ -1208,6 +1212,30 @@ function stretch(x, rate){
     setTimeout(()=>{ if(state==='cooldown' && active){ preroll=[]; prerollLen=0; setState('listening'); } }, wait);
   }
 
+  // play a take again (a take button, or the left pedal); works before Start was tapped
+  async function playAgain(t){
+    t=t||shownTake; if(!t || state==='recording') return;
+    if(t!==shownTake){ shownTake=t; renderTakes(); renderSheet(); }
+    if(!ac){ ensureAC(); try{ await ac.resume(); }catch(e){} anchorClock(); }
+    playTake(t,1);
+  }
+
+  // ---- Bluetooth page-turner pedals send keys like a keyboard: arrows, Page Up/Down or Space ----
+  const PEDAL_NEXT=['ArrowRight','ArrowDown','PageDown',' ','Enter'], PEDAL_BACK=['ArrowLeft','ArrowUp','PageUp'];
+  function pedalSync(){ $('pedalHint').hidden = $('pedal').value!=='on'; }
+  $('pedal').addEventListener('change',()=>{ pedalSync(); save(); });
+  document.addEventListener('keydown',e=>{
+    if($('pedal').value!=='on' || e.metaKey || e.ctrlKey || e.altKey) return;
+    const el=e.target; if(el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return;
+    if($('report').open) return;
+    const next=PEDAL_NEXT.includes(e.key), back=PEDAL_BACK.includes(e.key);
+    if(!next && !back) return;
+    e.preventDefault();                       // no page scrolling, no clicking a focused button
+    if(e.repeat) return;                      // a held pedal repeats; act once
+    if(document.activeElement && document.activeElement!==document.body) document.activeElement.blur();
+    if(next) orb.click(); else playAgain();
+  });
+
   function renderTakes(){
     const box=$('takes'); box.innerHTML='';
     if(takes.length){
@@ -1221,10 +1249,7 @@ function stretch(x, rate){
       b.className='chip'+(t===shownTake?' shown':'');
       b.innerHTML=ICONS.play+'<span>#'+t.id+'</span><span>'+t.dur.toFixed(1)+'s</span>';
       b.setAttribute('aria-label','Play take '+t.id);
-      b.onclick=async()=>{ if(state==='recording') return;
-        shownTake=t; renderTakes(); renderSheet();
-        if(!ac){ ensureAC(); try{ await ac.resume(); }catch(e){} anchorClock(); }
-        playTake(t,1); };
+      b.onclick=()=>playAgain(t);
       box.appendChild(b);
     }
     if(takes.length){
@@ -1341,7 +1366,7 @@ function stretch(x, rate){
     list.innerHTML = feedbackHTML(t, lens) + t.notes.map(n=>{
       const off=fb.tune && Math.abs(n.cents)>=20, tip=off?(n.cents>0?' sharp':' flat'):'';
       return `<span class="${off?(n.cents>0?'sharp':'flat'):''}" title="${n.cents>0?'+':''}${n.cents} cents${tip}">${noteName(n.midi,t.key)}${off?(n.cents>0?'↑':'↓'):''}</span>`;
-    }).join(' ') + '<div>'+SHARE+'</div>';
+    }).join(' ') + '<div>'+ASTARGET+SHARE+'</div>';
     hl={take:t, times:t.notes.map((n,i)=>[n.t0,n.t0+lens[i].a]), lens:fb.rhythm?lens:null, bars:[], els:noteGroups(paper,map), spans:[...list.querySelectorAll(':scope > span')], cur:-1};
     makeShareImage();
   }
@@ -1539,9 +1564,29 @@ function stretch(x, rate){
   }
   $('sheet').addEventListener('click',e=>{
     if(!shownTake) return;
+    if(e.target.closest('.astarget')){ e.stopPropagation(); takeAsTarget(shownTake); return; }
     if(e.target.closest('.report-btn')) openReport(shownTake);
     else if(e.target.closest('.share')) shareTake(shownTake);
   });
+
+  // ---- a take's transcription as target notes: the notes as written, not how they were played ----
+  // Octave numbers only where needed: on the first note and where the nearest octave would be wrong.
+  function targetString(notes, key){
+    let prev=null;
+    return notes.map(n=>{
+      const {L,a,oct}=spell(n.midi,key), base=L+(a>0?'#':a<0?'b':'');
+      let tok=base+oct;
+      if(prev!==null){ const guess=parseTarget(noteName(prev,key).replace('♯','#').replace('♭','b')+' '+base).notes[1]; if(guess===n.midi) tok=base; }
+      prev=n.midi; return tok;
+    }).join(' ');
+  }
+  function takeAsTarget(t){
+    if(!t.notes || !t.notes.length) return;
+    openTarget(true);
+    $('targetIn').value=targetString(t.notes, t.key); $('targetName').value=''; $('targetErr').textContent='';
+    window.scrollTo({top:0, behavior:'smooth'});
+  }
+  const ASTARGET='<button class="share astarget" aria-label="Use these notes as target notes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>Set as target</button>';
 
   // ---- report a problem: one JSON file with the take's audio and everything the app made of it ----
   let reportTake=null;
@@ -1717,7 +1762,7 @@ function stretch(x, rate){
     if(state==='recording' && ac) timer.textContent=fmt(ac.currentTime-recStart);
     requestAnimationFrame(draw);
   }
-  setState('idle'); renderSheet(); renderMetro(); restoreTakes();
+  setState('idle'); pedalSync(); renderSheet(); renderMetro(); restoreTakes();
   requestAnimationFrame(draw);
 })();
 </script>
