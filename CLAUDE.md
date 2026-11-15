@@ -10,8 +10,8 @@ Hosted on GitHub Pages from the `main` branch. Changes should be committed to `m
   YIN pitch detection on a downsampled signal; notes split only on clear re-articulation
   (bowed notes swell and fade); short blips and octave/octave+fifth errors are absorbed.
 - **Rhythm:** auto tempo, manual tempo, "first note is a ♪/♩/♩./𝅗𝅥" mode, or the metronome grid.
-- **Visual metronome:** pulsing ring + beat dots (no sound, because the mic would hear clicks).
-  With it on, takes snap to bars and playback starts on the next downbeat.
+- **Metronome:** pulsing ring + beat dots; optionally a click (headphones only, or the mic hears it)
+  or vibration (Android). With it on, takes snap to bars and playback starts on the next downbeat.
 - **Target mode:** player types notes (`G3 A B C4 D E F# G`); takes are aligned to the target
   (edit-distance alignment, octave-free if no octave typed) and coloured green / amber (out of tune) /
   red (wrong, played note shown) / grey (missed). Saved exercises in localStorage.
@@ -89,6 +89,13 @@ with the expected notes. Run it after any change to `detectNotes`, and add a cas
 - **Pitch view:** vibrato rate/width/evenness and bow steadiness (`soundOf`), and Compare with another take.
 - **Metronome** (Settings > Tempo): visual only, click (scheduled on the audio clock; needs headphones so
   the mic doesn't hear it) or vibrate (Android).
+- **Automatic sensitivity** (Settings > Listening, on by default): while listening, the quiet 20% of the
+  last ~6 s is the room's noise; the trigger goes 12 dB above it. The first ~0.5 s only measures.
+- **Interval intonation:** `intervalsOf` measures steps between connected notes against equal temperament
+  and Pythagorean (spelling-aware). Feedback reports systematic patterns ('Half steps 27 cents narrow');
+  the practice panel tracks interval sizes over 2 weeks.
+- **Routine** (notes panel): exercises in order, each with its own tempo (`pib-routine`); a bar above the
+  sheet steps through them; the position and any tempo change (ladder or +/-) are remembered per exercise.
 
 ## Ideas discussed but not built
 - A teacher version (assign exercises, see students' progress and takes); would need accounts and a server.
