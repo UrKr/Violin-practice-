@@ -72,6 +72,12 @@ detection on it and prints then-vs-now, so a fix can be checked against the repo
 `node tools/check.mjs` is the regression check for note detection: synthesized takes (scales, weak-
 fundamental open strings, octave leaps, out-of-tune notes, a note hovering between two semitones)
 with the expected notes. Run it after any change to `detectNotes`, and add a case for each fix.
+`node tools/audit.mjs [--abc]` is the wider audit: 20 realistic violin scenarios (re-bowed repeated notes,
+détaché, staccato, soft notes, wide vibrato, shifts, scratchy attacks, E6-E7, cello range, dotted
+rhythm, triplets, trill, rests between phrases, grace notes). One known limitation: a double stop a fifth
+apart reads an octave below the lower note. Test signals keep only ~0.35 s of silence at each end, like
+real takes: offline signals with long silences hid a noise-floor bug once. Also check the real reports
+(`tools/replay.mjs`) - a real violin's strong harmonics and room echo behave differently from synthesis.
 
 ## Practice tools
 - **Instruments** (Settings > Pitch): violin, viola (alto clef, C G D A), cello (bass/tenor clef, C G D A).

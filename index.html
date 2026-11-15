@@ -510,13 +510,18 @@ function detectNotes(data, sr, A4, detail=0){
   // how much better the signal repeats at 2x / 3x the period found (raw difference, unclear frames only)
   const sub2=new Float32Array(frames).fill(1), sub3=new Float32Array(frames).fill(1);
   const d=new Float32Array(tauMax+1), cm=new Float32Array(tauMax+1);
+  const dh=new Float32Array(Math.ceil(sr/850)+3), cmh=new Float32Array(Math.ceil(sr/850)+3);   // full-rate search, high notes
   for(let f=0;f<frames;f++){
     const st=f*hop; let e=0;
     for(let j=0;j<W;j++) e+=x[st+j]*x[st+j];
     rms[f]=Math.sqrt(e/W);
   }
   let maxR=0; for(const r of rms) if(r>maxR) maxR=r;
-  const gate=Math.max(maxR*0.07,0.002);
+  // Pitch is read down to 3.5% of the loudest moment (-29 dB: a soft note between loud ones still counts),
+  // but not within 4x the room's noise (the quietest 2% of frames: a take keeps only ~0.35 s of silence at
+  // each end), and the noise never raises it above the old 7%. New attacks keep the stricter 7%.
+  const srt=Array.from(rms).sort((a,b)=>a-b), noiseFloor=srt.length?srt[Math.floor(srt.length*0.02)]:0;
+  const gate=Math.max(maxR*0.035, Math.min(noiseFloor*4, maxR*0.07), 0.002), gateOn=Math.max(maxR*0.07, 0.002);
   for(let f=0;f<frames;f++){
     if(rms[f]<gate) continue;
     const st=f*hop;
@@ -526,6 +531,33 @@ function detectNotes(data, sr, A4, detail=0){
     let tau=-1;
     for(let t=tauMin;t<tauMax;t++){ if(cm[t]<0.15){ while(t+1<tauMax && cm[t+1]<cm[t]) t++; tau=t; break; } }
     if(tau<0){ let b=tauMin; for(let t=tauMin;t<tauMax;t++) if(cm[t]<cm[b]) b=t; if(cm[b]<0.3) tau=b; }
+    // High positions (850-2900 Hz, up to E7): the downsampled signal is too coarse there (and above
+    // 1400 Hz it isn't searched at all), so look again at full rate over short periods only. Use it
+    // when it finds a clear period and the coarse search found nothing, something above 850 Hz, or a
+    // multiple of that period (A6 read as A4).
+    {
+      const st0=f*hop*factor, Wh=Math.round(sr*0.012), h0=Math.floor(sr/2900), h1=Math.ceil(sr/850);   // 12 ms: 10+ periods up here
+      if(st0+Wh+h1+1<data.length){
+        let run2=0, best=-1;
+        for(let t=1;t<=h1+1;t++){ let s2=0; for(let j=0;j<Wh;j++){ const v=data[st0+j]-data[st0+j+t]; s2+=v*v; } dh[t]=s2; run2+=s2; cmh[t]=run2>0? s2*t/run2 : 1; }
+        for(let t=h0;t<h1;t++){ if(cmh[t]<0.08){ while(t+1<h1 && cmh[t+1]<cmh[t]) t++; best=t; break; } }
+        if(best>0){
+          const a2=cmh[best-1], b2=cmh[best], c2=cmh[best+1], den2=a2-2*b2+c2;
+          const fh=sr/(den2!==0 ? best+0.5*(a2-c2)/den2 : best), fl=tau>0 ? fs/tau : 0, k=fl>0 ? fh/fl : 0;
+          // A real high note repeats about as well at its own period as at k times it; a strong harmonic
+          // of a lower note (a violin's E4 has a loud E5 in it) repeats much worse at its own period.
+          let multipleOk=false;
+          if(fl>0 && fl<850 && Math.round(k)>=2 && Math.abs(k-Math.round(k))<0.06){
+            const L=Math.round(sr/fl); let dk=0; if(st0+Wh+L<data.length) for(let j=0;j<Wh;j++){ const v=data[st0+j]-data[st0+j+L]; dk+=v*v; }
+            multipleOk = dh[best] <= 2*dk + 1e-9;
+          }
+          if(fl===0 || fl>=850 || multipleOk){
+            const mh=69+12*Math.log2(fh/A4); if(mh>=28 && mh<=104) pitch[f]=mh;
+            continue;   // decided here (no octave-below check: this period is clear)
+          }
+        }
+      }
+    }
     if(tau<0) continue;
     // Open strings (the violin's G above all) have a weak fundamental and a strong 2nd harmonic,
     // so the first dip under the threshold can be an octave (or octave+fifth) too high. Note how
@@ -553,7 +585,7 @@ function detectNotes(data, sr, A4, detail=0){
   const onset=new Array(frames).fill(false); let last=-99;
   for(let f=4;f<frames;f++){
     let mn=Infinity; for(let k=f-4;k<f;k++) mn=Math.min(mn,rms[k]);
-    if(rms[f]>gate && rms[f]>mn*1.6 && rms[f]-mn>gate*0.6 && f-last>8){ onset[f]=true; last=f; }
+    if(rms[f]>gateOn && rms[f]>mn*1.6 && rms[f]-mn>gateOn*0.6 && f-last>8){ onset[f]=true; last=f; }
   }
   // runs of equal pitch
   let runs=[]; for(let f=0;f<frames;){ let g=f; while(g+1<frames && sm[g+1]===sm[f]) g++; runs.push({m:sm[f],a:f,b:g}); f=g+1; }
@@ -568,17 +600,21 @@ function detectNotes(data, sr, A4, detail=0){
   // split repeated same-pitch notes only on a clear re-articulation:
   // the sound must dip well below the note's own level, then come back.
   // Bowed and sung notes swell and fade inside one note, so smaller dips are ignored.
+  // A note that starts with a new bow stroke / attack (art) is never glued onto the note before it,
+  // even at the same pitch: four re-bowed D's are four D's.
   const notes=[];
+  const attackAt=(f,lvl)=>{ let on=false; for(let k=Math.max(0,f-4);k<=Math.min(frames-1,f+4);k++) if(onset[k]) on=true;
+    if(!on) return false; let mn=Infinity; for(let k=Math.max(0,f-8);k<f;k++) mn=Math.min(mn,rms[k]); return mn<lvl*0.45; };
   for(const u of merged){
     const lv=[]; for(let f=u.a;f<=u.b;f++) lv.push(rms[f]); lv.sort((p,q)=>p-q);
     const med=lv[lv.length>>1]||0;
-    let a=u.a;
+    let a=u.a, art=attackAt(u.a,med);
     for(let f=u.a+12; f<u.b-8; f++){
       if(!onset[f]) continue;
       let mn=Infinity; for(let k=f-6;k<f;k++) mn=Math.min(mn,rms[k]);
-      if(mn<med*0.45 && f-a>=12){ notes.push({midi:u.m,a,b:f-1}); a=f; }
+      if(mn<med*0.45 && f-a>=12){ notes.push({midi:u.m,a,b:f-1,art}); a=f; art=true; }
     }
-    notes.push({midi:u.m,a,b:u.b});
+    notes.push({midi:u.m,a,b:u.b,art});
   }
   // A note that, over most of its length, repeats far better (10x) at twice its period is really an
   // octave lower: the open-G "phantom octave". Same for three times the period (an octave and a fifth).
@@ -590,7 +626,7 @@ function detectNotes(data, sr, A4, detail=0){
     const drop = med(s2)<0.1 ? 12 : med(s3)<0.1 ? 19 : 0;
     if(drop){ for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && r[f]===o.midi) pitch[f]-=drop; o.midi-=drop; }
   }
-  for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; } }
+  for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6 && !notes[i].art){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; } }
   // clean up blips: very short notes, and short octave jumps, get absorbed by a neighbour.
   // How short is 'very short': clean = under 40% of a typical note here (0.1-0.2 s), so a slide or a
   // scratchy start in a slow passage goes, while real notes in a fast passage stay.
@@ -604,7 +640,8 @@ function detectNotes(data, sr, A4, detail=0){
       const harm=n=>n && [12,19,24].includes(Math.abs(n.midi-o.midi));
       const nearP=p && o.a-p.b<=30, nearQ=q && q.a-o.b<=30;
       const octave = (harm(p)&&nearP) || (harm(q)&&nearQ);
-      const first = i===0 && q && len<15 && nearQ;     // a scratchy start before the first real note
+      // a scratchy start before the first real note (in a fast passage, e.g. a trill, a short first note is real)
+      const first = i===0 && q && nearQ && len<Math.max(minF, Math.min(15, medLen*0.6));
       if(len<minF || first || (octave && len<30)){
         const touchP=p && o.a-p.b<=30, touchQ=q && q.a-o.b<=30;
         // an octave slip belongs to the note it's an octave of (the start of a G4 heard as G5 is
@@ -612,13 +649,13 @@ function detectNotes(data, sr, A4, detail=0){
         const hp=octave && harm(p) && nearP, hq=octave && harm(q) && nearQ;
         const toP = hp!==hq ? hp : (touchP && (!touchQ || (p.b-p.a)>=(q.b-q.a)));
         if(toP && touchP) p.b=o.b;
-        else if(touchQ) q.a=o.a;
+        else if(touchQ){ q.a=o.a; q.art=q.art||o.art; }
         else if(touchP) p.b=o.b;
         notes.splice(i,1); changed=true; break;
       }
     }
-    // re-join neighbours that now share a pitch
-    for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; changed=true; } }
+    // re-join neighbours that now share a pitch (unless the second one was bowed anew)
+    for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6 && !notes[i].art){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; changed=true; } }
   }
   // A single note an octave too high in the middle of a tune (a voice's harmonic, a scratchy attack):
   // it sits 9+ semitones above its neighbours, an octave lower it would be a step from them, it is not
@@ -645,7 +682,14 @@ function detectNotes(data, sr, A4, detail=0){
       const lp=p.b-p.a+1, lq=q.b-q.a+1, m=Math.round((mp*lp+mq*lq)/(lp+lq));
       p.midi=m; p.b=q.b; notes.splice(i,1); changed=true; break;
     }
-    for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; changed=true; } }
+    for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6 && !notes[i].art){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; changed=true; } }
+  }
+  // A new note starts where its bow stroke starts (the rise in loudness), not where its pitch finally
+  // wins over the previous note ringing on in the room: move its start back to an attack in the last
+  // 0.35 s, if there is one after the previous note had properly begun.
+  for(let i=1;i<notes.length;i++){
+    const o=notes[i], p=notes[i-1]; if(o.midi===p.midi) continue;
+    for(let f=o.a; f>=Math.max(p.a+10, o.a-35); f--) if(onset[f]){ if(f<o.a){ o.a=f; p.b=Math.min(p.b,f-1); } break; }
   }
   const res = notes.map(o=>{
     let s=0,c=0; for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && Math.abs(pitch[f]-o.midi)<0.6){ s+=pitch[f]-o.midi; c++; }
@@ -715,20 +759,29 @@ function livePitch(buf, sr, A4){
   return 69+12*Math.log2((fs/tr)/(A4||440));
 }
 
+// The tempo at which the note lengths are simplest: every tempo from 40 to 180 bpm is tried, and each
+// gap between note starts is matched to a plain length (quarter best, eighth and half next, dotted fine,
+// sixteenths only when they fit much better), with no preference between 50 and 140 bpm. (Taking the most
+// common gap as a beat read a dotted rhythm at the wrong tempo.)
 function guessTempo(notes){
-  const iois=[]; for(let i=1;i<notes.length;i++){ const v=notes[i].t0-notes[i-1].t0; if(v>0.08&&v<2.5) iois.push(v); }
-  if(iois.length<2) return 90;
-  iois.sort((a,b)=>a-b); const med=iois[iois.length>>1];
-  const cl=iois.filter(v=>Math.abs(v-med)<med*0.25), m=cl.reduce((a,b)=>a+b,0)/cl.length;
-  let best=90, bd=1e9;
-  // read the most common note length as a quarter if that gives a sensible tempo,
-  // otherwise as an eighth, then a sixteenth, then a half
-  for(const mult of [1,2,4,0.5]){ const bpm=60/(m*mult); if(bpm>=48&&bpm<=168){ best=bpm; break; } }
+  const iois=[]; for(let i=1;i<notes.length;i++){ const v=notes[i].t0-notes[i-1].t0; if(v>0.08&&v<4) iois.push(v); }
+  if(!iois.length) return 90;
+  const NICE=[[1,0.35],[2,0.05],[3,0.3],[4,0],[6,0.2],[8,0.12],[12,0.25],[16,0.2]];
+  let best=90, bs=Infinity;
+  for(let bpm=40; bpm<=180; bpm+=0.5){
+    const six=60/bpm/4; let sc=0;
+    for(const v of iois){ const x=v/six; let e=Infinity; for(const [k,c] of NICE) e=Math.min(e, Math.abs(x-k)/k*3+c); sc+=e; }
+    // no preference between 50 and 140 bpm, a mild one outside; a tiny tie-break towards ~80
+    sc=sc/iois.length + 0.25*(bpm<50 ? Math.log(bpm/50)**2 : bpm>140 ? Math.log(bpm/140)**2 : 0) + 0.03*Math.log(bpm/80)**2;
+    if(sc<bs){ bs=sc; best=bpm; }
+  }
+  // then fit the beat to all the note starts at once, so a slowly drifting tempo doesn't put the later
+  // notes in the wrong place (each gap alone can fit several tempos)
+  const six=60/best/4, t0=notes[0].t0; let skp=0, skk=0;
+  for(const n of notes){ const P=n.t0-t0, k=Math.round(P/six); if(P>0 && P<60){ skp+=k*P; skk+=k*k; } }
+  if(skk>0){ const fit=skp/skk; if(Math.abs(fit/six-1)<0.1) best=60/(fit*4); }
   return Math.round(best);
 }
-
-// "The first note is a quarter" (or eighth, half...): take the first note as beat 1,
-// let its length set the beat, then fit the tempo to the whole take.
 function tempoFromFirst(notes,val){
   if(!notes.length) return null;
   const t0=notes[0].t0;
@@ -770,6 +823,13 @@ function quantize(notes,bpm,refOverride,detail=0){
   const q=t=>Math.round((t-ref)/six/g)*g;
   const ev=notes.map(n=>({midi:n.midi, s:q(n.t0), e:q(n.t1)}));
   for(let i=1;i<ev.length;i++) if(ev[i].s<=ev[i-1].s) ev[i].s=ev[i-1].s+g;
+  // clean: after a real rest (3/4 beat or more of silence) the next phrase starts on the beat, keeping
+  // its own rhythm (a breath between phrases isn't a syncopation)
+  if(detail===0) for(let i=1;i<ev.length;i++){
+    if((notes[i].t0-notes[i-1].t1)/six<3) continue;
+    let ns=Math.round(ev[i].s/4)*4; if(ns<=ev[i-1].s) ns+=4;
+    const dl=ns-ev[i].s; if(dl) for(let j=i;j<ev.length;j++){ ev[j].s+=dl; ev[j].e+=dl; }
+  }
   for(let i=0;i<ev.length;i++){
     const o=ev[i]; o.e=Math.max(o.s+g,o.e);
     if(i<ev.length-1){ const ns=ev[i+1].s; if(ns-o.e<=g) o.e=ns; o.e=Math.min(o.e,ns); }

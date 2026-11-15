@@ -20,7 +20,7 @@ const gauss = () => Math.sqrt(-2 * Math.log(rnd() + 1e-12)) * Math.cos(2 * Math.
 // notes: [midi, beats, cents, wobble(cents, slow drift)]
 function take(notes, { amps = NORM, bpm = 60, noise = 0.02, vib = 0.004 } = {}) {
   const beat = 60 / bpm, out = [];
-  for (let i = 0; i < SR * 0.6; i++) out.push(0);
+  for (let i = 0; i < SR * 0.35; i++) out.push(0);   // like a real take: ~0.35 s of silence each end
   for (const [m, bl, c = 0, wob = 0] of notes) {
     const d = bl * beat, n = Math.round(d * SR); let ph = 0;
     for (let i = 0; i < n; i++) {
@@ -32,7 +32,7 @@ function take(notes, { amps = NORM, bpm = 60, noise = 0.02, vib = 0.004 } = {}) 
       out.push(x * 0.18 * env + gauss() * noise * env);
     }
   }
-  for (let i = 0; i < SR; i++) out.push(0);
+  for (let i = 0; i < SR * 0.4; i++) out.push(0);
   return Float32Array.from(out);
 }
 const G = [55, 57, 59, 60, 62, 64, 66, 67];
