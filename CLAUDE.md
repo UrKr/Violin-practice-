@@ -107,6 +107,11 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   lasts at least to the next beat (not Detailed). Changing it re-reads the shown take.
 - **Zen mode** (Settings > Feedback): body.zen hides the sheet, feedback, routine bar and toasts; takes
   are still analysed (practice time, tendencies) so switching back shows everything.
+- **Live note** (Settings > Feedback > Live note while playing, on by default): while recording, the big
+  button shows the note being played (`livePitch` on the last ~4096 samples, median of 5 readings, a new
+  note after 3 steady readings or a re-bow) and its cents under the judging setting. With target notes:
+  'Next <note>' under the button, and with rhythm a length bar against the written length (tempo from
+  the metronome, or the last take of that target). Hidden in Zen mode.
 - **Routine** (notes panel): exercises in order, each with its own tempo (`pib-routine`); a bar above the
   sheet steps through them; the position and any tempo change (ladder or +/-) are remembered per exercise.
 

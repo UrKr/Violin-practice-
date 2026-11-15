@@ -105,6 +105,20 @@ details.settings[open] > summary{color:var(--ink); background:var(--surface)}
 .orb svg{width:46px; height:46px; color:var(--c)}
 .orb .state{font-size:.78rem; font-weight:600; color:var(--c); text-transform:uppercase; letter-spacing:.08em}
 .orb .timer{font-size:2.1rem; font-weight:600; letter-spacing:-.03em; font-variant-numeric:tabular-nums; color:var(--c); line-height:1}
+/* live note while recording: the note big, its cents under it, the timer small */
+.orb .lnote{font-size:3rem; font-weight:650; letter-spacing:-.04em; line-height:1; color:var(--ink); min-height:1em}
+.orb .lnote small{font-size:1.1rem; font-weight:600; color:var(--muted); margin-left:2px}
+.orb .lcents{font-size:.95rem; font-weight:600; font-variant-numeric:tabular-nums; min-height:1.2em; color:var(--muted)}
+.orb .lcents.ok{color:var(--ok)} .orb .lcents.tune{color:var(--listen)}
+.orb.liveon .timer{font-size:.85rem; font-weight:500; color:var(--muted); margin-top:4px}
+.live{display:flex; align-items:center; gap:10px; width:min(84vw,320px); font-size:.88rem; color:var(--muted)}
+.live .lnext{white-space:nowrap; font-variant-numeric:tabular-nums}
+.live .lnext b{color:var(--ink); font-weight:650}
+.live .lbar{position:relative; flex:1; height:8px; border-radius:4px; background:var(--line)}
+.live .lbar i{position:absolute; left:0; top:0; bottom:0; width:0; border-radius:4px; background:var(--play)}
+.live .lbar i.ok{background:var(--ok)} .live .lbar i.bad{background:var(--rec)}
+.live .lbar b{position:absolute; top:-3px; bottom:-3px; width:2px; left:62.5%; background:var(--muted)}
+body.zen .orb .lnote, body.zen .orb .lcents, body.zen .live{display:none !important}
 .orb.idle{--c:var(--idle)} .orb.listening{--c:var(--listen)} .orb.recording{--c:var(--rec)}
 .orb.playing,.orb.cooldown{--c:var(--play)}
 .off{position:absolute; right:-58px; bottom:4px; width:44px; height:44px; border-radius:50%;
@@ -371,6 +385,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           <div class="sgroup">Feedback</div>
           <div class="set"><span>Zen</span><label class="check"><input type="checkbox" id="zenBox"> Just listen: no notes or feedback</label></div>
           <div class="set"><span>Show</span><label class="check"><input type="checkbox" id="fbText" checked> Written feedback</label></div>
+          <div class="set"><span></span><label class="check"><input type="checkbox" id="fbLive" checked> Live note while playing</label></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbTune" checked> Intonation</label></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbRhythm" checked> Rhythm (note lengths)</label></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbFollow" checked> Highlight while playing</label></div>
@@ -450,6 +465,8 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
     <div class="orbbox">
       <button class="orb idle" id="orb" aria-label="Start">
         <span id="icon"></span>
+        <span class="lnote" id="liveNote" hidden></span>
+        <span class="lcents" id="liveCents" hidden></span>
         <span class="timer" id="timer" hidden></span>
         <span class="state" id="stateText"></span>
         <span id="hint" hidden></span>
@@ -464,6 +481,10 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
       <button class="drone" id="droneBtn" aria-pressed="false">Drone</button>
     </div>
     <div class="dots" id="dots" aria-hidden="true"></div>
+    <div class="live" id="live" hidden>
+      <span class="lnext" id="liveNext"></span>
+      <span class="lbar" id="liveBar"><i id="liveFill"></i><b></b></span>
+    </div>
     <canvas id="meter" aria-hidden="true"></canvas>
   </div>
   <aside class="dock" id="dock" hidden aria-label="Practice settings"></aside>
@@ -1118,8 +1139,8 @@ function stretch(x, rate){
   // (so the note being played can be lit up): see updatePlayhead()
   let playing=null, hl=null, lastAbc='', compareId=null;
   // what feedback to give (Settings → Feedback); saved with the other settings
-  const fb={text:true, tune:true, rhythm:true, follow:true};
-  const FB_IDS={text:'fbText', tune:'fbTune', rhythm:'fbRhythm', follow:'fbFollow'};
+  const fb={text:true, tune:true, rhythm:true, follow:true, live:true};
+  const FB_IDS={text:'fbText', tune:'fbTune', rhythm:'fbRhythm', follow:'fbFollow', live:'fbLive'};
 
   // ---- recordings kept on the device (IndexedDB), so takes survive closing the page ----
   // Audio is stored as 16-bit samples. Nothing here ever leaves the device.
@@ -1426,6 +1447,64 @@ function stretch(x, rate){
 
   // ---- tuner ----
   let tunerOpen=false, tunerStartedMic=false, tBuf=new Float32Array(4096), tHist=[];
+
+  // ---- live note while recording: the note being played and its cents; with a target that has
+  // rhythm, which note comes next and how long the current one has been held vs its written length ----
+  const lBuf=new Float32Array(4096);
+  let live={hist:[], note:null, pm:null, start:0, idx:-1, peak:0, dipped:false, spb:0};
+  let lastTargetSpb={};   // the tempo of the last take of each target (seconds per beat)
+  function liveReset(){
+    lBuf.fill(0);
+    const tt=target && !target.ear ? target : null;
+    live={hist:[], note:null, pm:null, start:0, idx:-1, peak:0, dipped:false,
+      spb: tt && tt.durs ? (metro.on ? 60/metro.bpm : (lastTargetSpb[tt.str]||0)) : 0};
+  }
+  function liveFeed(buf, now){
+    lBuf.copyWithin(0,buf.length); lBuf.set(buf, lBuf.length-buf.length);
+    const m=livePitch(lBuf, ac.sampleRate, A4());
+    live.hist.push(m); if(live.hist.length>5) live.hist.shift();
+    const v=live.hist.filter(x=>x!==null); if(v.length<3){ if(level<live.peak*0.55) live.dipped=true; return; }
+    v.sort((a,b)=>a-b); const pm=v[v.length>>1], r=Math.round(pm);
+    // a new note: a new pitch held for 3 readings (~0.15 s), or the same pitch bowed again (loudness dipped, came back)
+    const recent=live.hist.slice(-3).every(x=>x!==null && Math.round(x)===r);
+    live.peak=Math.max(level, live.peak*0.97);
+    if(level<live.peak*0.55) live.dipped=true;
+    const rebow = live.note===r && live.dipped && level>live.peak*0.8;
+    if(recent && (live.note!==r || rebow)){
+      live.note=r; live.start=now; live.dipped=false;
+      const tt=target && !target.ear ? target : null;
+      if(tt){ const exp=tt.notes[live.idx+1];
+        if(exp!==undefined && (tt.hasOct ? exp===r : ((exp-r)%12+12)%12===0)) live.idx++; }
+    }
+    if(live.note!==null && r===live.note) live.pm=pm;   // (while changing notes the new pitch isn't this note's)
+  }
+  function liveDraw(){
+    const on=state==='recording' && fb.live && !document.body.classList.contains('zen');
+    orb.classList.toggle('liveon', on && live.note!==null);
+    $('liveNote').hidden=$('liveCents').hidden=!(on && live.note!==null);
+    const tt=target && !target.ear ? target : null;
+    $('live').hidden=!(on && tt);
+    if(!on) return;
+    if(live.note!==null){
+      const key=tt ? keyOf(tt.notes) : (shownTake && shownTake.key) || KEYS[0];
+      const nm=noteName(live.note,key), L=nm.replace(/-?\d+$/,'');
+      $('liveNote').innerHTML=L+'<small>'+nm.slice(L.length)+'</small>';
+      const c=Math.round((live.pm-live.note)*100-refCents(live.note,key)), lc=$('liveCents');
+      lc.textContent = Math.abs(c)<5 ? 'in tune' : (c>0?'+':'−')+Math.abs(c)+' cents';
+      lc.className='lcents'+(fb.tune ? (Math.abs(c)<10?' ok':Math.abs(c)>=20?' tune':'') : '');
+    }
+    if(tt){
+      const nx=tt.notes[live.idx+1], key=keyOf(tt.notes);
+      $('liveNext').innerHTML = nx!==undefined ? 'Next <b>'+noteName(nx,key)+'</b>' : '<b>Last note</b>';
+      const bar=$('liveBar'), fill=$('liveFill'), d=tt.durs && live.idx>=0 ? tt.durs[live.idx] : 0;
+      bar.hidden=!(fb.rhythm && live.spb && d);
+      if(!bar.hidden){
+        const r=(ac.currentTime-live.start)/(d*live.spb);
+        fill.style.width=Math.min(1.6,r)/1.6*100+'%';
+        fill.className = r>1.25 ? 'bad' : r>=0.9 ? 'ok' : '';
+      }
+    }
+  }
   async function openTuner(open){
     tunerOpen=open; $('tunerPanel').hidden=!open; $('tunerBtn').setAttribute('aria-expanded',open); $('tunerBtn').classList.toggle('on',open);
     if(open){
@@ -1747,10 +1826,11 @@ function stretch(x, rate){
       if(level>=T && !measuring){
         chunks = preroll.slice(); preroll=[]; prerollLen=0;
         recAudioStart = now - prerollLen0()/ac.sampleRate;
-        silentSince=null; recStart=now; setState('recording');
+        silentSince=null; recStart=now; liveReset(); setState('recording');
       }
     } else if(state==='recording'){
       chunks.push(buf);
+      if(fb.live) liveFeed(buf, now);
       if(level < T*0.85){                 // a little hysteresis so fades don't chatter
         if(silentSince===null) silentSince=now;
         else if(now-silentSince >= silenceLimit()) finishTake();
@@ -2168,6 +2248,7 @@ function stretch(x, rate){
     if(!fb.tune) r.items.forEach(it=>{ if(it.status==='tune') it.status='ok'; });
     const key=keyOf(r.items.map(x=>x.midi));
     const R=fb.rhythm ? targetRhythm(t, r) : null;
+    if(R && R.spb) lastTargetSpb[tt.str]=R.spb;
     const ev=r.items.map((it,i)=>({midi:it.midi, s:tSpan(tt,i)[0], e:tSpan(tt,i)[1],
       above: it.status==='tune' ? (it.cents>0?'↑':'↓') : '',
       below: it.status==='wrong' ? noteName(it.played.midi,key) : ''}));
@@ -2522,6 +2603,7 @@ function stretch(x, rate){
     } else if(ring.style.opacity!=='0'){ ring.style.opacity=0; [...$('dots').children].forEach(d=>d.classList.remove('now')); }
     orb.style.setProperty('--lvl', state==='recording'||state==='listening' ? live.toFixed(3) : 0);
     if(state==='recording' && ac) timer.textContent=fmt(ac.currentTime-recStart);
+    liveDraw();
     requestAnimationFrame(draw);
   }
   // ---- wide screens: the practice settings sit in the main window ----
