@@ -697,7 +697,7 @@ function noteName(m,key){ const {L,a,oct}=spell(m,key); return L+(a>0?'♯':a<0?
 
 // `map`, if given, gets one entry per drawn note head (tied pieces included):
 // the index of the event it belongs to. Used to light up the note being played.
-function toAbc(ev,bpm,mode,barsPerLine,key,beats,map){
+function toAbc(ev,bpm,mode,barsPerLine,key,beats,map,keepLast){
   key=key||KEYS[0]; beats=beats||4;
   const BAR=beats*4, VALID=[16,12,8,6,4,3,2,1];
   const shift = mode==='guitar'?12:0;
@@ -737,7 +737,8 @@ function toAbc(ev,bpm,mode,barsPerLine,key,beats,map){
     }
   };
   // end the last note at the barline rather than tying a short bit into a new bar
-  if(ev.length){ const L=ev[ev.length-1], barEnd=Math.ceil((L.s+1)/BAR)*BAR, over=L.e-barEnd;
+  // (not for written targets: there the last note's length is meant)
+  if(ev.length && !keepLast){ const L=ev[ev.length-1], barEnd=Math.ceil((L.s+1)/BAR)*BAR, over=L.e-barEnd;
     if(over>0 && over<=(L.e-L.s)/2) L.e=barEnd; }
   // Spread the bars evenly over as few lines as needed (6 bars at 4 per line: 3 + 3, not 4 + 2),
   // and stretch the last line across the width when it's at least half full, so a short take
@@ -794,6 +795,7 @@ function makeScale(pc, type, octaves, low){
 function compactTarget(seq, durs){
   let prev=null, pd=null;
   return seq.map((x,i)=>{
+    if(x.rest){ let tok='r'; if(durs && durs[i]!==pd){ tok+=':'+(+durs[i].toFixed(3)); pd=durs[i]; } return tok; }
     const base=x.name.replace(/-?\d+$/,'');
     let tok=x.name;
     if(prev!==null && parseTarget(prev+' '+base).notes[1]===x.midi) tok=base;
@@ -805,13 +807,21 @@ function compactTarget(seq, durs){
 
 // ---- Target: notes typed by the player ----
 // "G3 A B C4 D E F# G": a missing octave means the nearest one to the previous note.
+// A length in beats can follow a note or a rest (r): G3:2 = half note, A:0.5 or A:1/2 = eighth,
+// r:1 = quarter rest. A length carries over to the following notes until it changes. Without any
+// lengths the target is notes only (no rhythm).
 function parseTarget(str){
   const toks=str.replace(/[,|]/g,' ').trim().split(/\s+/).filter(Boolean);
   const PC={C:0,D:2,E:4,F:5,G:7,A:9,B:11};
-  const notes=[]; let hasOct=false, prev=null;
+  const notes=[], durs=[], onsets=[]; let hasOct=false, prev=null, dur=1, pos=0, timed=false;
+  const len=x=>{ if(x===undefined) return dur; const v=x.includes('/') ? +x.split('/')[0]/+x.split('/')[1] : +x; return v>0 ? v : NaN; };
   for(const tok of toks){
-    const m=tok.match(/^([A-Ga-g])(#{1,2}|♯|x|bb|b|♭)?(-?\d)?$/);
+    const rest=tok.match(/^[rRzZ](?::([\d.]+(?:\/\d+)?))?$/);
+    if(rest){ const d=len(rest[1]); if(!(d>0)) return {error:tok}; if(rest[1]!==undefined) timed=true; dur=d; pos+=d; continue; }
+    const m=tok.match(/^([A-Ga-g])(#{1,2}|♯|x|bb|b|♭)?(-?\d)?(?::([\d.]+(?:\/\d+)?))?$/);
     if(!m) return {error:tok};
+    const d=len(m[4]); if(!(d>0)) return {error:tok}; if(m[4]!==undefined) timed=true; dur=d;
+    onsets.push(pos); durs.push(d); pos+=d;
     const base=PC[m[1].toUpperCase()];
     const acc = !m[2] ? 0 : (m[2]==='##'||m[2]==='x') ? 2 : (m[2]==='#'||m[2]==='♯') ? 1 : m[2]==='bb' ? -2 : -1;
     let midi;
@@ -820,7 +830,7 @@ function parseTarget(str){
     else { let best=null; for(let o=0;o<9;o++){ const c=(o+1)*12+base+acc; if(best===null || Math.abs(c-prev)<Math.abs(best-prev) || (Math.abs(c-prev)===Math.abs(best-prev) && c>best)) best=c; } midi=best; }
     notes.push(midi); prev=midi;
   }
-  return {notes, hasOct};
+  return {notes, hasOct, durs: timed?durs:null, onsets: timed?onsets:null};
 }
 
 // Line up what was played with the target, allowing for missed and extra notes.
@@ -1004,8 +1014,8 @@ function stretch(x, rate){
     if(!str){ target=null; }
     else {
       const t=parseTarget(str);
-      if(t.error){ if(!quiet) $('targetErr').textContent='“'+t.error+'” isn’t a note. Use letters A–G, # or b, and an optional octave number.'; return false; }
-      if(!t.notes.length) target=null; else target={str, notes:t.notes, hasOct:t.hasOct};
+      if(t.error){ if(!quiet) $('targetErr').textContent='“'+t.error+'” isn’t a note. Use letters A–G, # or b, an optional octave number, and :beats for a length (G3:2, r:1 for a rest).'; return false; }
+      if(!t.notes.length) target=null; else target={str, notes:t.notes, hasOct:t.hasOct, durs:t.durs, onsets:t.onsets};
     }
     $('targetErr').textContent='';
     $('targetBtn').classList.toggle('on', !!target);
@@ -1037,7 +1047,7 @@ function stretch(x, rate){
     return {seq, name: tonic+' '+GEN_NAMES[type]+', '+oct+' oct'};
   }
   $('genGo').onclick=e=>{ e.stopPropagation(); const g=generated();
-    $('targetIn').value=compactTarget(g.seq); $('targetName').value=g.name; $('targetErr').textContent=''; };
+    $('targetIn').value=compactTarget(g.seq, g.seq.map((x,i)=>i===g.seq.length-1?2:1)); $('targetName').value=g.name; $('targetErr').textContent=''; };
 
   function renderStrings(){
     $('tStrings').innerHTML=instr().strings.map(m=>'<span data-m="'+m+'">'+noteName(m,KEYS[0]).replace(/-?\d+$/,'')+'</span>').join('');
@@ -1165,7 +1175,8 @@ function stretch(x, rate){
     if(!t.target || !t.notes) return;
     const r=judge(alignTarget(t.target.notes, t.notes, t.target.hasOct), keyOf(t.target.notes));
     const cnt={ok:0,tune:0,wrong:0,missed:0}; r.items.forEach(it=>cnt[it.status]++);
-    const n=r.items.length, clean=(fb.tune ? cnt.ok : cnt.ok+cnt.tune)===n && !r.extra;
+    const R=fb.rhythm ? targetRhythm(t, r) : null;
+    const n=r.items.length, clean=(fb.tune ? cnt.ok : cnt.ok+cnt.tune)===n && !r.extra && !(R && R.flags.length);
     recordProgress(t.target.str,{clean, right:cnt.ok+cnt.tune, total:n, inTune:cnt.ok, bpm:t.metro?t.metro.bpm:0});
     const need=+$('ladder').value;
     if(need && t.metro && metro.on){
@@ -1545,9 +1556,16 @@ function stretch(x, rate){
     }
     return fbBox(items);
   }
-  function targetFeedbackHTML(r, key){
+  const beatsTxt=b=>{ const q=Math.max(1,Math.round(Math.abs(b)*4)); return ({1:'¼',2:'½',3:'¾',4:'1'}[q]||(q/4).toFixed(2).replace(/\.?0+$/,''))+' beat'; };
+  function targetFeedbackHTML(r, key, R){
     if(!fb.text) return '';
     const items=[];
+    if(R && R.flags.length){
+      for(const [kind,label] of [['long','Too long'],['short','Too short'],['early','Early'],['late','Late']]){
+        const g=R.flags.filter(f=>f.kind===kind);
+        if(g.length) items.push(item('bad','<b>'+label+'</b> '+g.slice(0,4).map(f=>nm(r.items[f.i].midi,key,'bad')+' <small>#'+(f.i+1)+'</small> '+(f.pct!==undefined ? sgn(f.pct)+'%' : beatsTxt(f.beats))).join(', ')+(g.length>4?' …':'')));
+      }
+    } else if(R && r.items.filter(it=>it.played).length>=3) items.push(item('ok','<b>Rhythm right</b>'));
     r.items.forEach((it,i)=>{
       if(it.status==='wrong') items.push(item('bad','<b>Note '+(i+1)+'</b> '+nm(it.played.midi,key,'bad')+' → '+nm(it.midi,key,'ok')));
     });
@@ -1555,7 +1573,7 @@ function stretch(x, rate){
     if(missed.length) items.push(item('miss','<b>Missed</b> '+missed.map(x=>nm(x.it.midi,key,'miss')+' <small>#'+(x.i+1)+'</small>').join(', ')));
     if(r.extra) items.push(item('ink','<b>'+r.extra+' extra</b>'));
     if(fb.tune) items.push(...tuneItems(r.items.filter(it=>it.played && it.status!=='wrong').map(it=>({midi:it.midi, cents:it.cents})), key));
-    return fbBox(items.slice(0,7));
+    return fbBox(items.slice(0,8));
   }
 
   function renderSheet(){
@@ -1629,33 +1647,63 @@ function stretch(x, rate){
     paper.querySelectorAll('.abcjs-note').forEach((el,i)=>{ const k=map[i]; if(k===undefined) return; (out[k]=out[k]||[]).push(el); });
     return out;
   }
-  function drawStaff(ev, key, colors){
+  function drawStaff(ev, key, colors, beats=4){
     const paper=$('paper'), lay=sheetLayout(paper), map=[];
-    let abc=toAbc(ev, 60, clefFor(ev.map(e=>e.midi)), lay.bars, key, 4, map).replace(/^Q:.*\n/m,''); lastAbc=abc;
+    let abc=toAbc(ev, 60, clefFor(ev.map(e=>e.midi)), lay.bars, key, beats, map, true).replace(/^Q:.*\n/m,''); lastAbc=abc;
     paper.innerHTML='';
     if(!window.ABCJS){ paper.innerHTML='<div class="sheet-empty">The notation library didn’t load. Check your connection and reload the page.</div>'; return []; }
     ABCJS.renderAbc(paper, abc, {responsive:'resize', add_classes:true, foregroundColor:css('--ink'), staffwidth:lay.staffwidth, paddingleft:0, paddingright:0, paddingtop:14});
     if(colors){
       paper.querySelectorAll('.abcjs-note').forEach((g,i)=>{
-        const c=colors[i]; if(!c) return;
+        const c=colors[map[i]]; if(!c) return;   // by note, so both halves of a tied note match
         g.querySelectorAll('path,ellipse,circle').forEach(el=>{ el.style.fill=c.color; if(el.getAttribute('stroke') && el.getAttribute('stroke')!=='none') el.style.stroke=c.color; });
         if(c.faint) g.style.opacity='.4';
       });
     }
     return noteGroups(paper, map);
   }
-  function targetEvents(tt, shift=0){ return tt.notes.map((m,i)=>({midi:m+shift, s:i*4, e:i*4+4})); }
+  // target notes as sheet events (sixteenths): their rhythm if they have one, else quarter notes
+  const tSpan=(tt,i)=> tt.durs ? [Math.round(tt.onsets[i]*4), Math.round((tt.onsets[i]+tt.durs[i])*4)] : [i*4, i*4+4];
+  function targetEvents(tt, shift=0){ return tt.notes.map((m,i)=>{ const [s,e]=tSpan(tt,i); return {midi:m+shift, s, e}; }); }
+  const tBeats=tt=> tt && tt.durs ? metro.bpb : 4;
+
+  // Rhythm of a take against a target with lengths. Tempo: the metronome's if the take was played
+  // with it, else the one that best fits the take. Each played note: held vs written length, and
+  // early/late against where it should start. Returns {lens, flags, spb} or null.
+  function targetRhythm(t, r){
+    const tt=t.target; if(!tt || !tt.durs) return null;
+    const idx=r.items.map((it,i)=>it.played?i:-1).filter(i=>i>=0);
+    if(idx.length<2) return null;
+    const T=i=>tt.onsets[i], P=i=>r.items[i].played.t0, i0=idx[0];
+    let spb;
+    if(t.metro) spb=60/t.metro.bpm;
+    else { let a=0,b=0; idx.forEach(i=>{ const dt=T(i)-T(i0), dp=P(i)-P(i0); a+=dt*dp; b+=dt*dt; }); spb=b>0?a/b:0; }
+    if(!(spb>0)) return null;
+    let off=0; idx.forEach(i=>off+=P(i)-T(i)*spb); off/=idx.length;
+    const lens=r.items.map(()=>null), flags=[];
+    idx.forEach((i,k)=>{
+      const it=r.items[i], j=idx[k+1];
+      const legato = j===i+1 && Math.abs(T(i)+tt.durs[i]-T(j))<1e-6;
+      const a = legato ? P(j)-P(i) : it.played.t1-it.played.t0, w=tt.durs[i]*spb, free=k===idx.length-1;
+      lens[i]={w, a, free};
+      if(!free && Math.abs(a/w-1)>=0.25) flags.push({i, kind:a>w?'long':'short', pct:Math.round((a/w-1)*100)});
+      const dev=(P(i)-(off+T(i)*spb))/spb;
+      if(k>0 && Math.abs(dev)>=0.25) flags.push({i, kind:dev<0?'early':'late', beats:dev});
+    });
+    return {lens, flags, spb};
+  }
   function keyOf(midis){ return guessKey(midis.map((m,i)=>({midi:m,t0:i,t1:i+1}))); }
 
-  async function hearTarget(notes){
+  async function hearTarget(notes, durs, onsets){
     ensureAC(); await ac.resume(); anchorClock();
     if(state==='recording') return;
-    const sr=44100, beat=60/metro.bpm, len=Math.ceil((notes.length*beat+0.6)*sr);
+    if(!durs){ durs=notes.map(()=>1); onsets=notes.map((m,i)=>i); }
+    const sr=44100, beat=60/metro.bpm, total=onsets[onsets.length-1]+durs[durs.length-1], len=Math.ceil((total*beat+0.6)*sr);
     const OC=window.OfflineAudioContext||window.webkitOfflineAudioContext, oc=new OC(1,len,sr);
     const out=oc.createGain(); out.gain.value=0.5; out.connect(oc.destination);
     const hk=keyOf(notes);
     notes.forEach((m,i)=>{
-      const f=A4()*Math.pow(2,(m-69+refCents(m,hk)/100)/12), t=i*beat, d=beat*0.95;
+      const f=A4()*Math.pow(2,(m-69+refCents(m,hk)/100)/12), t=onsets[i]*beat, d=Math.max(0.12,durs[i]*beat-0.05);
       const o1=oc.createOscillator(), o2=oc.createOscillator(), lp=oc.createBiquadFilter(), g=oc.createGain();
       const lfo=oc.createOscillator(), lg=oc.createGain();
       o1.type='sawtooth'; o2.type='triangle'; o1.frequency.value=f; o2.frequency.value=f*1.002;
@@ -1667,21 +1715,21 @@ function stretch(x, rate){
       [o1,o2,lfo].forEach(o=>{ o.start(t); o.stop(t+d+0.05); });
     });
     const rendered=await oc.startRendering();
-    playTake({id:'target', buffer:rendered, beat}, 1);
+    playTake({id:'target', buffer:rendered, beat, onsets}, 1);
   }
   $('sheet').addEventListener('click',e=>{ const b=e.target.closest('.hear'); if(!b) return;
     const t=shownTake && shownTake.target && sheetView==='result' ? shownTake.target : target;
     if(!t) return;
     let notes=t.notes;
     if(shownTake && shownTake.target && shownTake.notes){ const r=alignTarget(t.notes, shownTake.notes, t.hasOct); notes=t.notes.map(m=>m+r.shift); }
-    hearTarget(notes);
+    hearTarget(notes, t.durs, t.onsets);
   });
   const HEAR='<button class="hear">'+'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>Hear it</button>';
 
   function renderTargetOnly(){
     $('sheetTitle').textContent='Notes to play'; $('sheetMeta').textContent=''; $('firstnote').hidden=true;
     const key=keyOf(target.notes);
-    hl={take:null, target:true, els:drawStaff(targetEvents(target), key, null), cur:-1};
+    hl={take:null, target:true, els:drawStaff(targetEvents(target), key, null, tBeats(target)), cur:-1};
     $('notelist').innerHTML=HEAR+progressHTML(target.str);
   }
 
@@ -1691,12 +1739,14 @@ function stretch(x, rate){
     const tt=t.target, r=judge(alignTarget(tt.notes, t.notes, tt.hasOct), keyOf(tt.notes.map(m=>m)));
     if(!fb.tune) r.items.forEach(it=>{ if(it.status==='tune') it.status='ok'; });
     const key=keyOf(r.items.map(x=>x.midi));
-    const ev=r.items.map((it,i)=>({midi:it.midi, s:i*4, e:i*4+4,
+    const R=fb.rhythm ? targetRhythm(t, r) : null;
+    const ev=r.items.map((it,i)=>({midi:it.midi, s:tSpan(tt,i)[0], e:tSpan(tt,i)[1],
       above: it.status==='tune' ? (it.cents>0?'↑':'↓') : '',
       below: it.status==='wrong' ? noteName(it.played.midi,key) : ''}));
     const col={ok:css('--ok'), tune:css('--listen'), wrong:css('--rec'), missed:css('--muted')};
-    const els=drawStaff(ev, key, r.items.map(it=>({color:col[it.status], faint:it.status==='missed'})));
-    hl={take:t, target:true, times:r.items.map(it=>it.played?[it.played.t0,it.played.t1]:null), els, cur:-1};
+    const els=drawStaff(ev, key, r.items.map(it=>({color:col[it.status], faint:it.status==='missed'})), tBeats(tt));
+    hl={take:t, target:true, times:r.items.map((it,i)=>it.played?[it.played.t0, it.played.t0+(R&&R.lens[i] ? R.lens[i].a : it.played.t1-it.played.t0)]:null),
+      lens:R?R.lens:null, bars:[], els, cur:-1};
     const cnt={ok:0,tune:0,wrong:0,missed:0}; r.items.forEach(it=>cnt[it.status]++);
     const right=cnt.ok+cnt.tune, n=r.items.length;
     const dot=(c,txt)=>'<span><i style="background:'+c+'"></i>'+txt+'</span>';
@@ -1707,7 +1757,7 @@ function stretch(x, rate){
       if(cnt.missed) html+=dot(col.missed, cnt.missed+' missed');
       if(r.extra) html+=dot(css('--ink'), r.extra+' extra');
     }
-    $('notelist').innerHTML='<div class="score">'+html+'</div>'+targetFeedbackHTML(r, key)+HEAR+SHARE;
+    $('notelist').innerHTML='<div class="score">'+html+'</div>'+targetFeedbackHTML(r, key, R)+HEAR+SHARE;
     t.lastSummary=(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+(cnt.tune?', '+cnt.tune+' out of tune':'')+(cnt.wrong?', '+cnt.wrong+' wrong':'')+(cnt.missed?', '+cnt.missed+' missed':'');
     makeShareImage();
   }
@@ -1805,21 +1855,21 @@ function stretch(x, rate){
     else if(e.target.closest('.share')) shareTake(shownTake);
   });
 
-  // ---- a take's transcription as target notes: the notes as written, not how they were played ----
-  // Octave numbers only where needed: on the first note and where the nearest octave would be wrong.
-  function targetString(notes, key){
-    let prev=null;
-    return notes.map(n=>{
-      const {L,a,oct}=spell(n.midi,key), base=L+(a>0?'#':a<0?'b':'');
-      let tok=base+oct;
-      if(prev!==null){ const guess=parseTarget(noteName(prev,key).replace('♯','#').replace('♭','b')+' '+base).notes[1]; if(guess===n.midi) tok=base; }
-      prev=n.midi; return tok;
-    }).join(' ');
+  // ---- a take's transcription as target notes: the notes and rhythm as written (as on the sheet),
+  // not how they were tuned or timed. Rests between notes are kept; octaves only where needed.
+  function targetString(t){
+    const {q}=rhythmOf(t), seq=[], durs=[];
+    q.forEach((e,i)=>{
+      if(i>0 && e.s>q[i-1].e){ seq.push({rest:true}); durs.push((e.s-q[i-1].e)/4); }
+      const {L,a,oct}=spell(e.midi,t.key);
+      seq.push({midi:e.midi, name:L+(a>0?'#':a<0?'b':'')+oct}); durs.push((e.e-e.s)/4);
+    });
+    return compactTarget(seq, durs);
   }
   function takeAsTarget(t){
     if(!t.notes || !t.notes.length) return;
     openTarget(true);
-    $('targetIn').value=targetString(t.notes, t.key); $('targetName').value=''; $('targetErr').textContent='';
+    $('targetIn').value=targetString(t); $('targetName').value=''; $('targetErr').textContent='';
     window.scrollTo({top:0, behavior:'smooth'});
   }
   const ASTARGET='<button class="share astarget" aria-label="Use these notes as target notes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>Set as target</button>';
@@ -1898,7 +1948,8 @@ function stretch(x, rate){
     }
     let idx=-1;
     if(pos!==null && isTune){
-      if(hl.target){ const i=Math.floor(pos/playing.take.beat); if(i<hl.els.length) idx=i; }
+      if(hl.target){ const b=pos/playing.take.beat, on=playing.take.onsets||[]; for(let i=0;i<on.length && i<hl.els.length;i++) if(on[i]<=b+0.01) idx=i;
+        if(on.length && b>on[on.length-1]+4) idx=-1; }
     } else if(pos!==null && hl.times && playing.take===hl.take){
       // the last note that has started; let it go a moment after it ends
       for(let i=0;i<hl.times.length;i++){ const tt=hl.times[i]; if(tt && tt[0]<=pos+0.03) idx=i; }
@@ -1954,6 +2005,7 @@ function stretch(x, rate){
       hl.bars=[]; hl.pass=playing.when;
     }
     hl.lens.forEach((L,j)=>{
+      if(!L || !hl.times[j]) return;
       let b=hl.bars[j];
       if(!b){ if(!live || pos===null || hl.times[j][0]>pos) return; b=hl.bars[j]=makeBar(j); if(!b) return; }
       if(b.done) return;
