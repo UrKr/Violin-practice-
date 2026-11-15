@@ -259,6 +259,21 @@ body.zen .sheet, body.zen .routine, body.zen #toast{display:none !important}
 body.series .sheet, body.series .routine, body.series .zenbar{display:none !important}
 .set .check.bk{flex-wrap:wrap; gap:6px 8px}
 .set .check.bk .inc{display:flex; align-items:center; gap:6px; font-size:.84rem; color:var(--muted); font-weight:400}
+/* simpler settings: rarely changed rows only with 'Show all settings' */
+body:not(.allset) .set.adv{display:none !important}
+.moreset{display:flex; justify-content:space-between; gap:8px; margin:14px 0 6px; padding-top:12px; border-top:1px solid var(--line)}
+.moreset button{border:none; background:transparent; color:var(--play); font-weight:600; font-size:.88rem; padding:6px 2px}
+/* quick guide */
+.guide{position:fixed; inset:0; z-index:50}
+.guide .spot{position:fixed; border-radius:16px; box-shadow:0 0 0 9999px rgba(10,16,13,.62); transition:all .25s ease; pointer-events:none}
+.guide .card{position:fixed; left:16px; right:16px; max-width:380px; margin:0 auto; background:var(--surface); color:var(--ink); border-radius:16px;
+  padding:16px 18px 12px; box-shadow:var(--shadow-lg); transition:top .25s ease}
+.guide .card h3{margin:0 0 6px; font-size:1.02rem; font-weight:650}
+.guide .card p{margin:0 0 12px; font-size:.92rem; line-height:1.45; color:var(--ink)}
+.guide .card .row{display:flex; align-items:center; justify-content:space-between}
+.guide .card .step{color:var(--muted); font-size:.8rem}
+.guide .card button{height:36px; padding:0 14px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink); font-weight:600; margin-left:6px}
+.guide .card button.go{background:var(--play); border-color:var(--play); color:#fff}
 .genhint{color:var(--muted); font-size:.78rem; margin-top:6px}
 .ear-wait{text-align:center; padding:22px 8px 10px; color:var(--muted)}
 .ear-wait b{display:block; color:var(--ink); font-size:1.05rem; font-weight:600; margin-bottom:4px}
@@ -385,24 +400,24 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
         <div class="panel">
           <section class="sgrp" id="grpListening" data-dock>
           <div class="sgroup">Listening</div>
-          <div class="set"><label for="thr">Sensitivity</label><input type="range" id="thr" min="0.15" max="0.9" step="0.01" value="0.45"><output id="thrVal"></output></div>
-          <div class="set"><span></span><label class="check"><input type="checkbox" id="autoSens" checked> Set from the room's noise</label></div>
+          <div class="set adv"><label for="thr">Sensitivity</label><input type="range" id="thr" min="0.15" max="0.9" step="0.01" value="0.45"><output id="thrVal"></output></div>
+          <div class="set adv"><span></span><label class="check"><input type="checkbox" id="autoSens" checked> Set from the room's noise</label></div>
           <div class="set"><span>Playback</span><label class="check"><input type="checkbox" id="bargeIn" checked> Stop it when I start playing <span id="bargeNote"></span></label></div>
           <div class="set"><label for="sil">Stop after</label><input type="range" id="sil" min="0.5" max="5" step="0.1" value="1.5"><output id="silVal"></output></div>
           <div class="set"><label for="rep">Repeat</label><input type="range" id="rep" min="0" max="4" step="1" value="1"><output id="repVal"></output></div>
           </section>
           <section class="sgrp" id="grpTempo">
           <div class="sgroup">Tempo</div>
-          <div class="set"><label for="ladder">Speed up</label>
+          <div class="set adv"><label for="ladder">Speed up</label>
             <select id="ladder"><option value="0">Off</option><option value="2">After 2 clean takes</option><option value="3">After 3 clean takes</option><option value="5">After 5 clean takes</option></select></div>
-          <div class="set"><label for="ladderStep">By</label>
+          <div class="set adv"><label for="ladderStep">By</label>
             <select id="ladderStep"><option value="2">2 bpm</option><option value="4" selected>4 bpm</option><option value="6">6 bpm</option></select></div>
           <div class="set"><label for="beatMode">Metronome</label>
             <select id="beatMode"><option value="visual">Visual only</option><option value="click">Click (with headphones)</option><option value="vibrate" id="vibOpt">Vibrate</option></select></div>
           <div class="set"><label for="bpb">Beats per bar</label>
             <select id="bpb"><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option></select></div>
-          <div class="set"><label for="bpm">Tempo</label><input type="range" id="bpm" min="40" max="200" step="1" value="90"><output id="bpmVal"></output></div>
-          <div class="set"><span></span><label class="check"><input type="checkbox" id="autoBpm" checked> Detect from my playing</label></div>
+          <div class="set adv"><label for="bpm">Tempo</label><input type="range" id="bpm" min="40" max="200" step="1" value="90"><output id="bpmVal"></output></div>
+          <div class="set adv"><span></span><label class="check"><input type="checkbox" id="autoBpm" checked> Detect from my playing</label></div>
           </section>
           <section class="sgrp" id="grpPitch" data-dock>
           <div class="sgroup">Pitch</div>
@@ -412,11 +427,11 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
             <select id="tuning"><option value="438">A = 438</option><option value="439">A = 439</option><option value="440" selected>A = 440</option><option value="441">A = 441</option><option value="442">A = 442</option><option value="443">A = 443</option><option value="444">A = 444</option><option value="445">A = 445</option></select></div>
           <div class="set"><label for="inton">Judge against</label>
             <select id="inton"><option value="et">Equal temperament</option><option value="pyth">Pythagorean (pure fifths)</option></select></div>
-          <div class="set"><label for="droneNote">Drone note</label>
+          <div class="set adv"><label for="droneNote">Drone note</label>
             <select id="droneNote"><option value="auto">Key of the music</option><option value="0">C</option><option value="1">C♯ / D♭</option><option value="2">D</option><option value="3">E♭</option><option value="4">E</option><option value="5">F</option><option value="6">F♯</option><option value="7">G</option><option value="8">A♭</option><option value="9">A</option><option value="10">B♭</option><option value="11">B</option></select></div>
-          <div class="set"><label for="detail">Notes</label>
+          <div class="set adv"><label for="detail">Notes</label>
             <select id="detail"><option value="0">Clean (ignore slips)</option><option value="1">Normal</option><option value="2">Detailed (every note)</option></select></div>
-          <div class="set"><label for="clef">Clef</label>
+          <div class="set adv"><label for="clef">Clef</label>
             <select id="clef">
               <option value="auto">Automatic</option>
               <option value="treble">Treble</option>
@@ -428,24 +443,25 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           </section>
           <section class="sgrp" id="grpFeedback" data-dock>
           <div class="sgroup">Feedback</div>
-          <div class="set"><span>Zen</span><label class="check"><input type="checkbox" id="zenBox"> Just listen: no notes or feedback</label></div>
+          <div class="set adv"><span>Zen</span><label class="check"><input type="checkbox" id="zenBox"> Just listen: no notes or feedback</label></div>
           <div class="set"><span>Show</span><label class="check"><input type="checkbox" id="fbText" checked> Written feedback</label></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbLive" checked> Live note while playing</label></div>
-          <div class="set"><span></span><label class="check"><input type="checkbox" id="fbTune" checked> Intonation</label></div>
-          <div class="set"><span></span><label class="check"><input type="checkbox" id="fbRhythm" checked> Rhythm (note lengths)</label></div>
-          <div class="set"><span></span><label class="check"><input type="checkbox" id="fbFollow" checked> Highlight while playing</label></div>
+          <div class="set adv"><span></span><label class="check"><input type="checkbox" id="fbTune" checked> Intonation</label></div>
+          <div class="set adv"><span></span><label class="check"><input type="checkbox" id="fbRhythm" checked> Rhythm (note lengths)</label></div>
+          <div class="set adv"><span></span><label class="check"><input type="checkbox" id="fbFollow" checked> Highlight while playing</label></div>
           </section>
           <section class="sgrp" id="grpControls">
           <div class="sgroup">Controls</div>
-          <div class="set"><label for="pedal">Pedal</label>
+          <div class="set adv"><label for="pedal">Pedal</label>
             <select id="pedal"><option value="off">Off</option><option value="on">Bluetooth pedal or keyboard</option></select></div>
-          <div class="set" id="pedalHint" hidden><span></span><span class="check">Right pedal: start, finish a take, skip playback. Left pedal: play the take again.</span></div>
+          <div class="set adv" id="pedalHint" hidden><span></span><span class="check">Right pedal: start, finish a take, skip playback. Left pedal: play the take again.</span></div>
           <div class="set"><span>Your data</span><span class="check bk"><button class="share" id="backupBtn">Back up</button><button class="share" id="restoreBtn">Restore</button>
             <label class="inc"><input type="checkbox" id="backupTakes" checked> with recordings</label></span></div>
           <input type="file" id="restoreFile" accept=".json,application/json" hidden>
           <div class="set" id="installRow" hidden><span>App</span><span class="check"><button class="share" id="installBtn">Install on this device</button></span></div>
           <div class="set" id="iosHint" hidden><span>App</span><span class="check">To install: tap Share, then Add to Home Screen.</span></div>
           </section>
+          <div class="moreset"><button id="allSetBtn">Show all settings</button><button id="guideBtn">Quick guide</button></div>
           <input type="checkbox" id="auto" checked hidden>
         </div>
       </details>
@@ -2946,7 +2962,7 @@ function stretch(x, rate){
       document.querySelectorAll('.sgrp[data-dock]').forEach(g=>dock.appendChild(g));
       dock.hidden=false;
     } else {
-      ['grpListening','grpTempo','grpPitch','grpFeedback','grpControls'].forEach(id=>panel.insertBefore($(id),$('auto')));
+      ['grpListening','grpTempo','grpPitch','grpFeedback','grpControls'].forEach(id=>panel.insertBefore($(id),panel.querySelector('.moreset')));
       dock.hidden=true;
     }
   }
@@ -2989,6 +3005,39 @@ function stretch(x, rate){
   $('restoreBtn').onclick=e=>{ e.stopPropagation(); $('restoreFile').click(); };
   $('restoreFile').addEventListener('change',()=>{ const f=$('restoreFile').files[0]; $('restoreFile').value=''; if(f) restoreBackup(f); });
 
+  // ---- simpler settings ----
+  function setAllSettings(on){ document.body.classList.toggle('allset',on); $('allSetBtn').textContent=on?'Show fewer settings':'Show all settings'; try{ localStorage.setItem('pib-allset',on?'1':''); }catch(e){} }
+  $('allSetBtn').onclick=e=>{ e.stopPropagation(); setAllSettings(!document.body.classList.contains('allset')); };
+  setAllSettings((()=>{ try{ return localStorage.getItem('pib-allset')==='1'; }catch(e){ return false; } })());
+
+  // ---- quick guide: a few steps lighting up the main parts; once on the first visit, then from Settings ----
+  const GUIDE=[
+    ['#orb','Just play','Tap Start, then play. The app records while you play and plays it back when you stop, then listens again. You can also simply start playing over the playback.'],
+    ['#focusSeg','What to work on','Tuning, rhythm or both, just the notes, or Zen to listen without any feedback.'],
+    ['#targetBtn','Notes to play','Type the notes, generate a scale, or set a take as the target. Then the app tells you exactly what to fix, and can run a series of takes.'],
+    ['#statsBtn','Your practice','Today’s suggestions, time practised, and how you tend to play each note.'],
+    ['#settings summary','Settings','Tuning (A = 440…), instrument, metronome, and your backup. “Show all settings” has everything else.'],
+  ];
+  function showGuide(){
+    $('settings').open=false; openTarget(false); if(statsOpen) openStats(false);
+    let k=0; const g=document.createElement('div'); g.className='guide'; g.innerHTML='<div class="spot"></div><div class="card"></div>';
+    document.body.appendChild(g);
+    const place=()=>{
+      const [sel,title,text]=GUIDE[k], el=document.querySelector(sel); if(!el) return;
+      el.scrollIntoView({block:'center', behavior:'instant'});
+      const r=el.getBoundingClientRect(), pad=8, spot=g.querySelector('.spot');
+      Object.assign(spot.style,{left:(r.left-pad)+'px', top:(r.top-pad)+'px', width:(r.width+2*pad)+'px', height:(r.height+2*pad)+'px', borderRadius: sel==='#orb'?'50%':'16px'});
+      const card=g.querySelector('.card');
+      card.innerHTML='<h3>'+title+'</h3><p>'+text+'</p><div class="row"><span class="step">'+(k+1)+' of '+GUIDE.length+'</span><span><button class="skip">'+(k<GUIDE.length-1?'Skip':'Close')+'</button>'+(k<GUIDE.length-1?'<button class="go">Next</button>':'')+'</span></div>';
+      const below=r.bottom+pad+12, h=card.offsetHeight||170;
+      card.style.top=(below+h<innerHeight ? below : Math.max(12, r.top-pad-12-h))+'px';
+    };
+    const end=()=>{ g.remove(); removeEventListener('resize',place); try{ localStorage.setItem('pib-guide','1'); }catch(e){} };
+    g.addEventListener('click',e=>{ e.stopPropagation(); if(e.target.closest('.go')){ k++; place(); } else if(e.target.closest('.skip')) end(); });
+    addEventListener('resize',place); place();
+  }
+  $('guideBtn').onclick=e=>{ e.stopPropagation(); showGuide(); };
+
   // ---- install as an app ----
   let installEvt=null;
   window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); installEvt=e; $('installRow').hidden=false; });
@@ -3003,6 +3052,7 @@ function stretch(x, rate){
 
   $('zenBox').checked=document.body.classList.contains('zen'); renderFocus(); renderLiveTog();
   loadLinkedExercise();
+  if((()=>{ try{ return !localStorage.getItem('pib-guide'); }catch(e){ return false; } })()) setTimeout(showGuide, 600);
   setState('idle'); pedalSync(); renderStrings(); renderSheet(); renderMetro(); renderRoutineBar(); restoreTakes();
   requestAnimationFrame(draw);
 })();

@@ -39,6 +39,13 @@ The tuner always takes the open strings G D A E in pure fifths from A (A=440: E 
 G 195.6 Hz), whatever the setting; other notes follow the setting. The drone uses the same
 pure-fifth chain, so it agrees with the open strings. Tuner 'In tune' = within 3 cents.
 
+## First run and settings
+A quick guide (`showGuide`, 5 steps lighting up the big button, focus row, notes panel, practice panel,
+settings) shows once on the first visit (`pib-guide`) and from Settings > Quick guide. Rarely changed
+settings rows carry `.adv` and only show with 'Show all settings' (body.allset, `pib-allset`): sensitivity,
+speed-up ladder, manual tempo, notes detail, drone note, clef, the single feedback switches, pedal.
+Browser tests start fresh, so they set `pib-guide` (and `pib-allset` to reach hidden settings) first.
+
 ## Layout
 Phones: one column, all settings behind the settings button. At 1100px and wider: two columns; the
 Listening, Pitch and Feedback setting groups (`.sgrp[data-dock]`) are moved into the main window
