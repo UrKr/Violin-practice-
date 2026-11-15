@@ -168,6 +168,10 @@ canvas{width:100%; height:40px; display:block; border-radius:8px; visibility:hid
 #pitchWrap{overflow-x:auto; border-radius:8px; margin-top:4px; position:relative}
 #playhead{position:absolute; top:0; height:220px; width:2px; margin-left:-1px; background:var(--play); pointer-events:none}
 .pb-hl{fill:var(--play); fill-opacity:.28}
+/* note-length bar above the note being played: track = written length, fill = how long it was held */
+.pb-track{fill:var(--line)} .pb-tick{fill:var(--muted)}
+.pb-fill{fill:var(--play)} .pb-fill.ok,.pb-lab.ok{fill:var(--ok)} .pb-fill.tune,.pb-lab.tune{fill:var(--listen)} .pb-fill.bad,.pb-lab.bad{fill:var(--rec)}
+.pb-lab{font:600 9px system-ui,sans-serif}
 .notelist span.now{color:var(--bg); background:var(--play); border-radius:4px; padding:0 3px; margin:0 -3px}
 #pitchWrap canvas{display:block; height:220px; width:auto; visibility:visible; border-radius:0}
 .share{display:inline-flex; align-items:center; gap:6px; height:36px; padding:0 14px; border-radius:999px;
@@ -1150,8 +1154,14 @@ function stretch(x, rate){
       if(autoBpm.checked){ bpm.value=t.bpm; }
     }
     const narrow = paper.clientWidth < 460;
-    const map=[];
-    const abc = toAbc(quantize(t.notes,exact||tempo,ref), tempo, clefSel.value, narrow?2:4, t.key, beats, map);
+    const map=[], q=quantize(t.notes,exact||tempo,ref);
+    const abc = toAbc(q, tempo, clefSel.value, narrow?2:4, t.key, beats, map);
+    // written length of each note vs. how long it was really held. A note runs until the next
+    // one starts, unless the sheet has a rest after it; then it runs until its sound stops.
+    const six=60/(exact||tempo)/4;
+    const lens=q.map((e,i)=>{ const n=t.notes[i], legato=i<q.length-1 && e.e===q[i+1].s;
+      // the last note is cut at the barline on the sheet, so its written length isn't a goal: no verdict
+      return {w:(e.e-e.s)*six, a:(legato ? t.notes[i+1].t0 : n.t1)-n.t0, free:i===q.length-1}; });
     const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
     paper.innerHTML='';
     if(window.ABCJS){
@@ -1163,7 +1173,7 @@ function stretch(x, rate){
       const off=Math.abs(n.cents)>=20, tip=off?(n.cents>0?' sharp':' flat'):'';
       return `<span class="${off?(n.cents>0?'sharp':'flat'):''}" title="${n.cents>0?'+':''}${n.cents} cents${tip}">${noteName(n.midi,t.key)}${off?(n.cents>0?'↑':'↓'):''}</span>`;
     }).join(' ') + '<div>'+SHARE+'</div>';
-    hl={take:t, times:t.notes.map(n=>[n.t0,n.t1]), els:noteGroups(paper,map), spans:[...list.querySelectorAll(':scope > span')], cur:-1};
+    hl={take:t, times:t.notes.map((n,i)=>[n.t0,n.t0+lens[i].a]), lens, bars:[], els:noteGroups(paper,map), spans:[...list.querySelectorAll(':scope > span')], cur:-1};
     makeShareImage();
   }
 
@@ -1318,7 +1328,7 @@ function stretch(x, rate){
     const svg=$('paper').querySelector('svg'); if(!svg) return;
     const ink=css('--ink'), c=svg.cloneNode(true), vb=(svg.getAttribute('viewBox')||'0 0 700 200').split(/[ ,]+/).map(Number);
     c.setAttribute('width',vb[2]); c.setAttribute('height',vb[3]); c.setAttribute('xmlns','http://www.w3.org/2000/svg');
-    c.querySelectorAll('.pb-hl').forEach(el=>el.remove());
+    c.querySelectorAll('.pb-hl,.pb-len').forEach(el=>el.remove());
     c.querySelectorAll('*').forEach(el=>{ ['fill','stroke'].forEach(a=>{ if(el.getAttribute(a)===ink) el.setAttribute(a,'#111'); }); });
     const img=new Image(), S=2;
     img.onload=()=>{ const cv=document.createElement('canvas'); cv.width=vb[2]*S+40; cv.height=vb[3]*S+40;
@@ -1388,6 +1398,61 @@ function stretch(x, rate){
       if(idx>=0 && pos>hl.times[idx][1]+0.25) idx=-1;
     }
     markNote(idx);
+    if(hl.lens) updateBars(pos);
+  }
+
+  // Length bars. One appears above each note as it starts and fills while it sounds; the
+  // empty track is the written length. Afterwards it stays, coloured by how close the length
+  // was, so at the end of playback every note shows how well it was held.
+  const SVGNS='http://www.w3.org/2000/svg';
+  const svgEl=(tag,attrs)=>{ const e=document.createElementNS(SVGNS,tag); for(const k in attrs) e.setAttribute(k,attrs[k]); return e; };
+  const lenClass=r=>{ const d=Math.abs(r-1); return d<0.1?'ok':d<0.25?'tune':'bad'; };
+  function makeBar(j){
+    const els=hl.els[j]; if(!els || !els.length) return null;
+    const parent=els[0].parentNode, line=els.filter(e=>e.parentNode===parent);   // a tie can run onto the next line
+    let x0=Infinity, x1=-Infinity, top=Infinity;
+    for(const e of line){ try{ const b=e.getBBox(); x0=Math.min(x0,b.x); x1=Math.max(x1,b.x+b.width); top=Math.min(top,b.y); }catch(err){ return null; } }
+    const staff=parent.querySelector('.abcjs-staff'); if(staff){ try{ top=Math.min(top,staff.getBBox().y); }catch(err){} }
+    const W=Math.max(24,x1-x0+12), x=(x0+x1)/2-W/2, y=top-11, H=4;
+    // a note held too long overflows its track, but stops short of the next note's bar
+    let maxW=W*1.6; const nx=hl.els[j+1] && hl.els[j+1][0];
+    if(nx && nx.parentNode===parent){ try{ const b=nx.getBBox(); maxW=Math.min(maxW, b.x+b.width/2-Math.max(24,b.width+12)/2-3-x); }catch(err){} }
+    maxW=Math.max(W+3,maxW);
+    const g=svgEl('g',{class:'pb-len'});
+    g.appendChild(svgEl('rect',{class:'pb-track',x,y,width:W,height:H,rx:2}));
+    const fill=svgEl('rect',{class:'pb-fill',x,y,width:0,height:H,rx:2});
+    g.appendChild(fill);
+    g.appendChild(svgEl('rect',{class:'pb-tick',x:x+W-1,y:y-2,width:1.5,height:H+4}));   // where the written length ends
+    const lab=svgEl('text',{class:'pb-lab',x:x+W/2,y:y-3,'text-anchor':'middle'});
+    g.appendChild(lab);
+    parent.appendChild(g);
+    return {fill, lab, W, maxW, free:hl.lens[j].free, done:false};
+  }
+  function setBar(b, ratio, final){
+    if(b.free) ratio=Math.min(ratio,1);
+    b.fill.setAttribute('width', Math.min(Math.max(0,ratio)*b.W, b.maxW));
+    const c = b.free ? '' : final || ratio>1.1 ? lenClass(ratio) : '';
+    b.fill.setAttribute('class','pb-fill'+(c?' '+c:''));
+    if(final && b.free) b.done=true;
+    else if(final){
+      b.done=true;
+      const d=Math.round((ratio-1)*100);
+      if(Math.abs(d)>=10){ b.lab.textContent=(d>0?'+':'−')+Math.abs(d)+'%'; b.lab.setAttribute('class','pb-lab '+c); }
+    }
+  }
+  function updateBars(pos){
+    const live = playing && playing.take===hl.take;
+    if(live && hl.pass!==playing.when){   // a new playback (or the next repeat): start clean
+      document.querySelectorAll('#paper .pb-len').forEach(el=>el.remove());
+      hl.bars=[]; hl.pass=playing.when;
+    }
+    hl.lens.forEach((L,j)=>{
+      let b=hl.bars[j];
+      if(!b){ if(!live || pos===null || hl.times[j][0]>pos) return; b=hl.bars[j]=makeBar(j); if(!b) return; }
+      if(b.done) return;
+      if(!live || pos>=hl.times[j][1]) setBar(b, L.a/L.w, true);
+      else setBar(b, (pos-hl.times[j][0])/L.w, false);
+    });
   }
 
   function draw(){
