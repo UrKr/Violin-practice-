@@ -485,14 +485,14 @@ function detectNotes(data, sr, A4){
     }
     notes.push({midi:u.m,a,b:u.b});
   }
-  // A note that, over most of its length, repeats far better (20x) at twice its period is really an
+  // A note that, over most of its length, repeats far better (10x) at twice its period is really an
   // octave lower: the open-G "phantom octave". Same for three times the period (an octave and a fifth).
   // Judged on the whole note, because single frames of true notes can look like this too.
   const med=a=>{ a.sort((x,y)=>x-y); return a[a.length>>1]; };
   for(const o of notes){
     const s2=[], s3=[]; for(let f=o.a;f<=o.b;f++) if(r[f]===o.midi){ s2.push(sub2[f]); s3.push(sub3[f]); }
     if(s2.length<5) continue;
-    const drop = med(s2)<0.05 ? 12 : med(s3)<0.05 ? 19 : 0;
+    const drop = med(s2)<0.1 ? 12 : med(s3)<0.1 ? 19 : 0;
     if(drop){ for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && r[f]===o.midi) pitch[f]-=drop; o.midi-=drop; }
   }
   for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; } }
@@ -519,6 +519,33 @@ function detectNotes(data, sr, A4){
       }
     }
     // re-join neighbours that now share a pitch
+    for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; changed=true; } }
+  }
+  // A single note an octave too high in the middle of a tune (a voice's harmonic, a scratchy attack):
+  // it sits 9+ semitones above its neighbours, an octave lower it would be a step from them, it is not
+  // the same note name as them (that would be a real octave leap: D4 D5), and the signal leans
+  // towards the lower octave. Then it goes down an octave.
+  for(let i=0;i<notes.length;i++){
+    const o=notes[i], nbs=[notes[i-1],notes[i+1]].filter(n=>n && (n===notes[i-1] ? o.a-n.b : n.a-o.b)<=30);
+    if(!nbs.length || !nbs.every(n=>o.midi-n.midi>=9 && Math.abs(o.midi-12-n.midi)<=3 && (o.midi-n.midi)%12!==0)) continue;
+    const s2=[]; for(let f=o.a;f<=o.b;f++) if(r[f]===o.midi) s2.push(sub2[f]);
+    if(s2.length && med(s2)<0.35){ for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && r[f]===o.midi) pitch[f]-=12; o.midi-=12; }
+  }
+  // A voice (or a slide) hovering around the halfway point between two notes splits into short
+  // pieces a semitone apart (E D# E D# E, or a scoop C B C). Neighbours a semitone apart whose real
+  // average pitches are under 60 cents apart are one pitch: merge them, when one of them is short.
+  // A real semitone step is ~100 cents apart, and two long notes are always left alone.
+  const meanP=o=>{ let s=0,c=0; for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && Math.abs(pitch[f]-o.midi)<0.8){ s+=pitch[f]; c++; } return c?s/c:o.midi; };
+  for(let changed=true; changed;){
+    changed=false;
+    for(let i=1;i<notes.length;i++){
+      const p=notes[i-1], q=notes[i];
+      if(Math.abs(p.midi-q.midi)!==1 || q.a-p.b>6 || Math.min(p.b-p.a+1, q.b-q.a+1)>=35) continue;
+      const mp=meanP(p), mq=meanP(q);
+      if(Math.abs(mp-mq)>=0.6) continue;
+      const lp=p.b-p.a+1, lq=q.b-q.a+1, m=Math.round((mp*lp+mq*lq)/(lp+lq));
+      p.midi=m; p.b=q.b; notes.splice(i,1); changed=true; break;
+    }
     for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; changed=true; } }
   }
   const res = notes.map(o=>{

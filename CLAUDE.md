@@ -69,6 +69,9 @@ base64), the notes heard (times, cents, written vs held length), the ABC shown, 
 settings and the player's description. Reports are usually dropped in `debug/`.
 `node tools/replay.mjs <report.json> [--wav out.wav] [--A 442]` runs the current `index.html` note
 detection on it and prints then-vs-now, so a fix can be checked against the report.
+`node tools/check.mjs` is the regression check for note detection: synthesized takes (scales, weak-
+fundamental open strings, octave leaps, out-of-tune notes, a note hovering between two semitones)
+with the expected notes. Run it after any change to `detectNotes`, and add a case for each fix.
 
 ## Ideas discussed but not built
 - Note lengths in target mode, with rhythm judged against the metronome.
