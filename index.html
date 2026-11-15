@@ -6,11 +6,13 @@
 <title>Play it back</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#E6ECE4; --surface:#F4F7F2; --ink:#1C2A22; --muted:#5B6B61; --line:#C5D0C6;
-  --rec:#C8323C; --ok:#2F8A4E; --play:#2C7A82; --listen:#A87A12; --idle:#7D8B82;
+  --bg:#F3F4F1; --surface:#FFFFFF; --ink:#18211C; --muted:#67736B; --line:#E1E5E0; --line2:#CDD4CE;
+  --rec:#C4323B; --ok:#2E8549; --play:#1F6F78; --listen:#AD780D; --idle:#87938B;
+  --shadow:0 1px 2px rgba(20,30,25,.05), 0 6px 20px rgba(20,30,25,.06);
+  --shadow-lg:0 2px 6px rgba(20,30,25,.06), 0 16px 40px rgba(20,30,25,.14);
   color-scheme: light;
   box-sizing:border-box;
   padding-top:env(safe-area-inset-top,0px);
@@ -18,127 +20,140 @@
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
-    --bg:#141D18; --surface:#1C2721; --ink:#E3EBE4; --muted:#93A399; --line:#2F3D35;
-    --rec:#F0545D; --ok:#5CC27E; --play:#4FB3BC; --listen:#E0AE3C; --idle:#6F7E75; color-scheme: dark;
+    --bg:#0E1311; --surface:#171D1A; --ink:#E6ECE7; --muted:#97A39B; --line:#262F2A; --line2:#36413B;
+    --rec:#F0545D; --ok:#5CC27E; --play:#4FB3BC; --listen:#E0AE3C; --idle:#76837B; color-scheme: dark;
+    --shadow:0 1px 2px rgba(0,0,0,.3); --shadow-lg:0 12px 40px rgba(0,0,0,.55);
   }
 }
 :root[data-theme="dark"]{
-  --bg:#141D18; --surface:#1C2721; --ink:#E3EBE4; --muted:#93A399; --line:#2F3D35;
-  --rec:#F0545D; --ok:#5CC27E; --play:#4FB3BC; --listen:#E0AE3C; --idle:#6F7E75; color-scheme: dark;
+  --bg:#0E1311; --surface:#171D1A; --ink:#E6ECE7; --muted:#97A39B; --line:#262F2A; --line2:#36413B;
+  --rec:#F0545D; --ok:#5CC27E; --play:#4FB3BC; --listen:#E0AE3C; --idle:#76837B; color-scheme: dark;
+  --shadow:0 1px 2px rgba(0,0,0,.3); --shadow-lg:0 12px 40px rgba(0,0,0,.55);
 }
 *,*::before,*::after{box-sizing:inherit}
 [hidden]{display:none !important}
 html,body{margin:0}
 body{background:var(--bg); color:var(--ink);
-  font-family:"Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size:17px; line-height:1.4; -webkit-tap-highlight-color:transparent}
+  font-family:Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size:16px; line-height:1.45; letter-spacing:-.006em; -webkit-tap-highlight-color:transparent;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility}
 main{max-width:1100px; margin:0 auto; padding:14px 18px 32px}
 /* the controls stay a phone-sized column; the sheet music uses the width there is */
 .wrap,.err,.toast{max-width:484px; margin-left:auto; margin-right:auto}
 button{font:inherit; color:inherit; cursor:pointer}
-button:focus-visible, summary:focus-visible, select:focus-visible, input:focus-visible{outline:2px solid var(--ink); outline-offset:3px}
+button:focus-visible, summary:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible{outline:2px solid var(--play); outline-offset:2px}
 
 /* top bar */
 .bar{display:flex; justify-content:space-between; align-items:center; min-height:44px}
-.bar h1{font-size:1.05rem; font-weight:600; margin:0}
-details.settings > summary{list-style:none; width:44px; height:44px; display:grid; place-items:center;
-  border-radius:50%; color:var(--muted); cursor:pointer}
+.bar h1{font-size:1.02rem; font-weight:650; margin:0; display:flex; align-items:center; gap:9px; letter-spacing:-.015em}
+.bar h1 .mark{width:26px; height:26px; border-radius:8px; background:var(--play); color:#fff; display:grid; place-items:center}
+.bar h1 .mark svg{width:16px; height:16px}
+details.settings > summary{list-style:none; width:42px; height:42px; display:grid; place-items:center;
+  border-radius:12px; color:var(--muted); cursor:pointer}
 details.settings > summary::-webkit-details-marker{display:none}
 details.settings[open] > summary{color:var(--ink); background:var(--surface)}
-.panel{position:absolute; left:0; right:0; margin:6px auto 0; max-width:484px; z-index:5;
-  background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:16px 18px 6px;
-  box-shadow:0 12px 32px color-mix(in srgb, var(--ink) 18%, transparent)}
+.panel{position:absolute; left:0; right:0; margin:8px auto 0; max-width:484px; z-index:5;
+  background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:18px 18px 8px;
+  box-shadow:var(--shadow-lg)}
 .wrap{position:relative}
-.set{display:grid; grid-template-columns:7.5em 1fr 3.4em; align-items:center; gap:10px; margin-bottom:12px; font-size:.95rem}
+.set{display:grid; grid-template-columns:7.8em 1fr 3.4em; align-items:center; gap:10px; margin-bottom:12px; font-size:.9rem; font-weight:500}
+.sgroup{font-size:.7rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted);
+  margin:16px 0 10px; padding-top:14px; border-top:1px solid var(--line)}
+.sgroup:first-child{margin-top:0; padding-top:0; border-top:none}
 .set output{color:var(--muted); text-align:right; font-variant-numeric:tabular-nums; font-size:.9rem}
 .set input[type=range]{width:100%; accent-color:var(--play); height:28px; margin:0}
 .set input[type=range]:disabled{opacity:.35}
-.set select{grid-column:2 / 4; font:inherit; font-size:.95rem; padding:6px 8px; border-radius:8px;
-  border:1px solid var(--line); background:var(--bg); color:var(--ink)}
-.set .check{grid-column:2 / 4; display:flex; align-items:center; gap:8px; color:var(--muted); font-size:.9rem}
+.set select{grid-column:2 / 4; font:inherit; font-size:.9rem; font-weight:400; padding:7px 10px; border-radius:10px;
+  border:1px solid var(--line2); background:var(--surface); color:var(--ink)}
+.set .check{grid-column:2 / 4; display:flex; align-items:center; gap:8px; color:var(--muted); font-size:.88rem; font-weight:400}
 .set .check input{width:20px; height:20px; accent-color:var(--play); margin:0}
 #thr{direction:rtl}
 
 /* the big button */
-.stage{display:flex; flex-direction:column; align-items:center; gap:12px; margin:10px 0 22px}
+.stage{display:flex; flex-direction:column; align-items:center; gap:14px; margin:14px 0 18px}
 .orbbox{position:relative}
 .orb{--c:var(--idle); --lvl:0;
-  width:min(56vw,210px); aspect-ratio:1; border-radius:50%; border:none; position:relative;
+  width:min(52vw,200px); aspect-ratio:1; border-radius:50%; border:none; position:relative;
   background:var(--surface);
-  box-shadow:0 0 0 calc(4px + var(--lvl)*28px) color-mix(in srgb, var(--c) 20%, transparent), inset 0 0 0 9px var(--c);
+  box-shadow:0 0 0 calc(3px + var(--lvl)*28px) color-mix(in srgb, var(--c) 16%, transparent), inset 0 0 0 6px var(--c), var(--shadow);
   transition:box-shadow 70ms linear;
   display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px}
-.orb svg{width:52px; height:52px; color:var(--c)}
-.orb .state{font-size:1.05rem; font-weight:600; color:var(--c)}
-.orb .timer{font-size:2.2rem; font-weight:800; letter-spacing:-.02em; font-variant-numeric:tabular-nums; color:var(--c); line-height:1}
+.orb svg{width:46px; height:46px; color:var(--c)}
+.orb .state{font-size:.78rem; font-weight:600; color:var(--c); text-transform:uppercase; letter-spacing:.08em}
+.orb .timer{font-size:2.1rem; font-weight:600; letter-spacing:-.03em; font-variant-numeric:tabular-nums; color:var(--c); line-height:1}
 .orb.idle{--c:var(--idle)} .orb.listening{--c:var(--listen)} .orb.recording{--c:var(--rec)}
 .orb.playing,.orb.cooldown{--c:var(--play)}
-.off{position:absolute; right:-8px; bottom:-4px; width:44px; height:44px; border-radius:50%;
-  border:1px solid var(--line); background:var(--bg); display:none; place-items:center; color:var(--muted)}
+.off{position:absolute; right:-58px; bottom:4px; width:44px; height:44px; border-radius:50%;
+  border:1px solid var(--line); background:var(--surface); box-shadow:var(--shadow); display:none; place-items:center; color:var(--muted)}
 .off svg{width:18px; height:18px}
 .active .off{display:grid}
-canvas{width:100%; height:40px; display:block; border-radius:8px; visibility:hidden}
+canvas{width:100%; height:34px; display:block; border-radius:8px; visibility:hidden}
+.stage > canvas{max-width:484px}
 .active canvas{visibility:visible}
 
 .err{background:color-mix(in srgb,var(--rec) 14%,var(--surface)); border-left:4px solid var(--rec);
   padding:10px 14px; border-radius:6px; font-size:.92rem; display:none; margin:6px 0 12px}
 
 /* sheet */
-.sheet{background:var(--surface); border-radius:14px; padding:12px 12px 12px; margin-bottom:16px}
-.sheet-head{display:flex; justify-content:space-between; align-items:baseline; gap:10px; padding:0 4px}
-.sheet-head h2{margin:0; font-size:1rem; font-weight:600}
-.sheet-meta{color:var(--muted); font-size:.85rem; font-variant-numeric:tabular-nums}
+.sheet{background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:14px 14px 14px; margin-bottom:14px; box-shadow:var(--shadow)}
+.sheet-head{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:0 4px 8px; border-bottom:1px solid var(--line); margin-bottom:6px}
+.sheet-head h2{margin:0; font-size:.98rem; font-weight:650; letter-spacing:-.01em}
+.sheet-meta{color:var(--muted); font-size:.84rem; font-variant-numeric:tabular-nums}
 #paper{min-height:80px; overflow-x:auto}
 #paper svg{max-width:100%}
 .sheet-empty{color:var(--muted); font-size:.95rem; padding:26px 4px; text-align:center}
-.notelist{color:var(--muted); font-size:.85rem; padding:0 4px; line-height:1.7; word-spacing:.15em}
+.notelist{color:var(--muted); font-size:.82rem; padding:0 4px; line-height:1.7; word-spacing:.15em; font-variant-numeric:tabular-nums}
 .notelist .sharp,.notelist .flat{color:var(--rec); font-weight:600}
-.feedback{margin:6px 4px 2px; font-size:.92rem; line-height:1.5; color:var(--ink)}
-.feedback p{margin:0 0 2px}
+.feedback{margin:6px 0 8px; padding:8px 12px; border-radius:12px; background:var(--bg); font-size:.88rem; line-height:1.5; color:var(--ink)}
+.feedback p{margin:2px 0; padding-left:15px; position:relative}
+.feedback p::before{content:""; position:absolute; left:0; top:.55em; width:7px; height:7px; border-radius:50%; background:var(--listen)}
+.feedback p.good::before{background:var(--ok)}
 .feedback b{font-weight:600}
 .feedback .good{color:var(--ok); font-weight:600}
 
 /* takes */
 .takes{display:flex; gap:8px; overflow-x:auto; padding:2px 2px 6px; margin:0 -2px; scrollbar-width:none}
 .takes::-webkit-scrollbar{display:none}
-.chip{flex:none; display:flex; align-items:center; gap:6px; padding:8px 12px; border-radius:999px;
-  border:1px solid var(--line); background:transparent; font-size:.9rem; font-variant-numeric:tabular-nums}
+.chip{flex:none; display:flex; align-items:center; gap:6px; height:36px; padding:0 12px; border-radius:10px;
+  border:1px solid var(--line); background:var(--surface); box-shadow:var(--shadow); font-size:.86rem; font-weight:500; font-variant-numeric:tabular-nums}
 .chip svg{width:12px; height:12px; color:var(--play)}
 .chip.shown{background:var(--play); border-color:var(--play); color:var(--bg)}
 .chip.shown svg{color:var(--bg)}
-.chip.clear{color:var(--muted); border-style:dashed}
+.chip.clear{color:var(--muted); background:transparent; border-color:transparent; box-shadow:none}
 .beatring{position:absolute; inset:-14px; border-radius:50%; border:3px solid var(--ink); opacity:0; pointer-events:none}
 .metro{display:flex; align-items:center; gap:6px}
-.metro button{border:1px solid var(--line); background:transparent; height:44px; border-radius:999px}
-.metro .step{width:44px; font-size:1.3rem; line-height:1; color:var(--muted)}
-.metro .tog{min-width:104px; padding:0 16px; font-weight:600; font-variant-numeric:tabular-nums; color:var(--muted)}
+.metro button{border:1px solid var(--line); background:var(--surface); height:40px; border-radius:12px; box-shadow:var(--shadow)}
+.metro .step{width:40px; font-size:1.2rem; line-height:1; color:var(--muted)}
+.metro .tog{min-width:96px; padding:0 14px; font-weight:600; font-variant-numeric:tabular-nums; color:var(--muted); display:inline-flex; align-items:center; justify-content:center; gap:4px}
+.metro .tog .qn{width:16px; height:16px}
 .metro.on .tog{background:var(--ink); border-color:var(--ink); color:var(--bg)}
 .metro:not(.on) .step{visibility:hidden}
 .dots{display:flex; gap:10px; height:10px; align-items:center}
-.dots i{width:7px; height:7px; border-radius:50%; background:var(--line)}
+.dots i{width:7px; height:7px; border-radius:50%; background:var(--line2)}
 .dots i:first-child{width:10px; height:10px}
 .dots i.now{background:var(--ink)}
 .metro:not(.on) + .dots{visibility:hidden}
-.firstnote{display:flex; align-items:center; gap:6px; padding:8px 4px 2px; flex-wrap:wrap}
-.firstnote .lab{color:var(--muted); font-size:.85rem; margin-right:2px}
-.firstnote button{height:36px; min-width:40px; padding:0 10px; border-radius:999px; border:1px solid var(--line);
-  background:transparent; display:grid; place-items:center; font-size:.85rem; color:var(--ink)}
-.firstnote button svg{width:22px; height:22px}
-.firstnote button[aria-pressed="true"]{background:var(--ink); border-color:var(--ink); color:var(--bg)}
+.firstnote{display:flex; align-items:center; gap:2px; margin:12px 0 0; padding-top:10px; border-top:1px solid var(--line); flex-wrap:wrap}
+.firstnote .lab{color:var(--muted); font-size:.82rem; margin-right:8px}
+.firstnote button{height:32px; min-width:38px; padding:0 10px; border-radius:8px; border:none;
+  background:var(--bg); display:grid; place-items:center; font-size:.82rem; font-weight:500; color:var(--ink)}
+.firstnote button svg{width:20px; height:20px}
+.firstnote button[aria-pressed="true"]{background:var(--surface); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.12), 0 0 0 1px var(--line2); font-weight:600}
 .right{display:flex; align-items:center; gap:2px}
-.iconbtn{width:44px; height:44px; border-radius:50%; border:none; background:transparent; color:var(--muted); display:grid; place-items:center}
-.iconbtn.on{color:var(--ink); background:var(--surface)}
+.iconbtn{width:42px; height:42px; border-radius:12px; border:none; background:transparent; color:var(--muted); display:grid; place-items:center}
+.iconbtn.on,.iconbtn[aria-expanded="true"]{color:var(--ink); background:var(--surface); box-shadow:var(--shadow)}
+details.settings[open] > summary{box-shadow:var(--shadow)}
 .panel.tpanel{top:100%}
 .tpanel label{display:block; font-weight:600; font-size:.95rem; margin-bottom:8px}
-.tpanel input{width:100%; font:inherit; font-size:1.05rem; padding:10px 12px; border-radius:10px; border:1px solid var(--line);
-  background:var(--bg); color:var(--ink); letter-spacing:.02em}
+.tpanel input{width:100%; font:inherit; font-size:1rem; padding:10px 12px; border-radius:10px; border:1px solid var(--line2);
+  background:var(--surface); color:var(--ink); letter-spacing:.01em}
 .tpanel .btns{display:flex; gap:8px; margin:12px 0 10px}
-.tpanel .btns button{height:40px; padding:0 18px; border-radius:999px; border:1px solid var(--line); background:transparent; font-weight:600}
+.tpanel .btns button{height:38px; padding:0 16px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); font-weight:600; font-size:.9rem}
 .tpanel .btns .primary{background:var(--ink); border-color:var(--ink); color:var(--bg)}
 .tpanel .perr{color:var(--rec); font-size:.9rem; min-height:1.2em; margin-bottom:6px}
-.seg{display:inline-flex; border:1px solid var(--line); border-radius:999px; overflow:hidden}
-.seg button{border:none; background:transparent; padding:5px 12px; font-size:.85rem; color:var(--muted)}
-.seg button[aria-pressed="true"]{background:var(--ink); color:var(--bg)}
+.seg{display:inline-flex; background:var(--bg); border-radius:10px; padding:2px; gap:2px}
+.seg button{border:none; background:transparent; padding:5px 12px; border-radius:8px; font-size:.82rem; font-weight:500; color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.12), 0 0 0 1px var(--line)}
 .score{display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:4px 4px 0; font-size:.9rem; color:var(--muted)}
 .score strong{color:var(--ink); font-size:1.05rem; font-weight:600}
 .score i{display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; vertical-align:1px}
@@ -149,13 +164,13 @@ canvas{width:100%; height:40px; display:block; border-radius:8px; visibility:hid
 .saved .load b{display:block; font-weight:600; font-size:.95rem}
 .saved .load span{color:var(--muted); font-size:.82rem}
 .saved .del{width:44px; height:44px; border:none; background:transparent; color:var(--muted); font-size:1.2rem}
-.hear{display:inline-flex; align-items:center; gap:6px; height:36px; padding:0 14px; border-radius:999px;
-  border:1px solid var(--line); background:transparent; font-size:.88rem; font-weight:600; margin:8px 4px 2px}
+.hear{display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 11px; border-radius:10px;
+  border:1px solid var(--line2); background:var(--surface); font-size:.84rem; font-weight:500; margin:10px 6px 0 0; color:var(--ink)}
 .hear svg{width:12px; height:12px; color:var(--play)}
 .chip.speed[aria-pressed="true"]{background:var(--ink); border-color:var(--ink); color:var(--bg)}
 /* tuner */
 .tuner{text-align:center; padding:6px 0 4px}
-.tuner .tn{font-size:3.4rem; font-weight:800; letter-spacing:-.03em; line-height:1; min-height:1em; font-variant-numeric:tabular-nums}
+.tuner .tn{font-size:3.4rem; font-weight:600; letter-spacing:-.04em; line-height:1; min-height:1em; font-variant-numeric:tabular-nums}
 .tuner .tn small{font-size:1.3rem; font-weight:600; color:var(--muted); margin-left:2px}
 .tuner .tc{color:var(--muted); font-variant-numeric:tabular-nums; margin:6px 0 12px; min-height:1.4em}
 .tuner .scale{position:relative; height:44px; margin:0 6px}
@@ -167,7 +182,7 @@ canvas{width:100%; height:40px; display:block; border-radius:8px; visibility:hid
 .tuner .needle.good{background:var(--ok)}
 .tuner .ends{display:flex; justify-content:space-between; color:var(--muted); font-size:.8rem; margin:4px 2px 12px}
 .tuner .strings{display:flex; justify-content:center; gap:8px; margin-bottom:10px}
-.tuner .strings span{width:44px; height:36px; border-radius:999px; border:1px solid var(--line); display:grid; place-items:center; font-weight:600; color:var(--muted)}
+.tuner .strings span{width:44px; height:36px; border-radius:10px; border:1px solid var(--line2); display:grid; place-items:center; font-weight:600; color:var(--muted)}
 .tuner .strings span.near{border-color:var(--ink); color:var(--ink)}
 .tuner .strings span.good{background:var(--ok); border-color:var(--ok); color:var(--bg)}
 /* pitch curve */
@@ -177,23 +192,23 @@ canvas{width:100%; height:40px; display:block; border-radius:8px; visibility:hid
 /* note-length bar above the note being played: track = written length, fill = how long it was held */
 .pb-track{fill:var(--line)} .pb-tick{fill:var(--muted)}
 .pb-fill{fill:var(--play)} .pb-fill.ok,.pb-lab.ok{fill:var(--ok)} .pb-fill.tune,.pb-lab.tune{fill:var(--listen)} .pb-fill.bad,.pb-lab.bad{fill:var(--rec)}
-.pb-lab{font:600 9px system-ui,sans-serif}
+.pb-lab{font:600 9px Inter,system-ui,sans-serif}
 .notelist span.now{color:var(--bg); background:var(--play); border-radius:4px; padding:0 3px; margin:0 -3px}
 #pitchWrap canvas{display:block; height:220px; width:auto; visibility:visible; border-radius:0}
-.share{display:inline-flex; align-items:center; gap:6px; height:36px; padding:0 14px; border-radius:999px;
-  border:1px solid var(--line); background:transparent; font-size:.88rem; font-weight:600; margin:8px 4px 2px}
-.share svg{width:15px; height:15px}
+.share{display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 11px; border-radius:10px;
+  border:1px solid var(--line2); background:var(--surface); font-size:.84rem; font-weight:500; margin:10px 6px 0 0; color:var(--ink)}
+.share svg{width:15px; height:15px; color:var(--muted)}
 /* report a problem (debug export) */
-dialog.report{width:calc(100% - 32px); max-width:440px; border:1px solid var(--line); border-radius:14px; padding:16px 18px 8px;
-  background:var(--surface); color:var(--ink); box-shadow:0 12px 32px color-mix(in srgb, var(--ink) 18%, transparent)}
+dialog.report{width:calc(100% - 32px); max-width:440px; border:1px solid var(--line); border-radius:16px; padding:18px 18px 8px;
+  background:var(--surface); color:var(--ink); box-shadow:var(--shadow-lg)}
 dialog.report::backdrop{background:rgba(0,0,0,.35)}
 dialog.report textarea{width:100%; box-sizing:border-box; font:inherit; font-size:1rem; padding:10px 12px; border-radius:10px;
-  border:1px solid var(--line); background:var(--bg); color:var(--ink); resize:vertical}
+  border:1px solid var(--line2); background:var(--surface); color:var(--ink); resize:vertical}
 dialog.report .heard{color:var(--muted); font-size:.85rem; line-height:1.6; margin:0 0 10px; word-spacing:.1em}
 dialog.report .heard b{font-weight:600; color:var(--ink); font-size:.75rem; margin-right:2px}
 dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 .sheet-head .left{display:flex; align-items:baseline; gap:8px; min-width:0}
-.metro .drone{padding:0 14px; margin-left:6px; color:var(--muted); font-weight:600}
+.metro .drone{padding:0 14px; margin-left:6px; color:var(--muted); font-weight:600; font-size:.92rem}
 .metro .drone[aria-pressed="true"]{background:var(--play); border-color:var(--play); color:var(--bg)}
 .metro:not(.on) .step{visibility:hidden}
 .toast{background:var(--ink); color:var(--bg); border-radius:12px; padding:10px 14px; margin-bottom:10px; font-weight:600; font-size:.95rem; text-align:center}
@@ -214,16 +229,18 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 <main>
   <div class="wrap">
     <div class="bar">
-      <h1>Play it back</h1>
+      <h1><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 12h1.5M8 8v8M11.5 5v14M15 9v6M18.5 11v2"/></svg></span>Play it back</h1>
       <div class="right">
       <button class="iconbtn" id="tunerBtn" aria-label="Tuner" aria-expanded="false"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 3v8a3 3 0 0 0 6 0V3M12 14v7M9 21h6"/></svg></button>
       <button class="iconbtn" id="targetBtn" aria-label="Notes to play" aria-expanded="false"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg></button>
       <details class="settings" id="settings">
         <summary aria-label="Settings"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></summary>
         <div class="panel">
+          <div class="sgroup">Listening</div>
           <div class="set"><label for="thr">Sensitivity</label><input type="range" id="thr" min="0.15" max="0.9" step="0.01" value="0.45"><output id="thrVal"></output></div>
           <div class="set"><label for="sil">Stop after</label><input type="range" id="sil" min="0.5" max="5" step="0.1" value="1.5"><output id="silVal"></output></div>
           <div class="set"><label for="rep">Repeat</label><input type="range" id="rep" min="0" max="4" step="1" value="1"><output id="repVal"></output></div>
+          <div class="sgroup">Tempo</div>
           <div class="set"><label for="ladder">Speed up</label>
             <select id="ladder"><option value="0">Off</option><option value="2">After 2 clean takes</option><option value="3">After 3 clean takes</option><option value="5">After 5 clean takes</option></select></div>
           <div class="set"><label for="ladderStep">By</label>
@@ -232,6 +249,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
             <select id="bpb"><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option></select></div>
           <div class="set"><label for="bpm">Tempo</label><input type="range" id="bpm" min="40" max="200" step="1" value="90"><output id="bpmVal"></output></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="autoBpm" checked> Detect from my playing</label></div>
+          <div class="sgroup">Pitch</div>
           <div class="set"><label for="tuning">Tuning</label>
             <select id="tuning"><option value="438">A = 438</option><option value="439">A = 439</option><option value="440" selected>A = 440</option><option value="441">A = 441</option><option value="442">A = 442</option><option value="443">A = 443</option><option value="444">A = 444</option><option value="445">A = 445</option></select></div>
           <div class="set"><label for="inton">Judge against</label>
@@ -245,10 +263,12 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
               <option value="bass">Bass</option>
               <option value="guitar">Guitar</option>
             </select></div>
-          <div class="set"><span>Feedback</span><label class="check"><input type="checkbox" id="fbText" checked> Written feedback</label></div>
+          <div class="sgroup">Feedback</div>
+          <div class="set"><span>Show</span><label class="check"><input type="checkbox" id="fbText" checked> Written feedback</label></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbTune" checked> Intonation</label></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbRhythm" checked> Rhythm (note lengths)</label></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbFollow" checked> Highlight while playing</label></div>
+          <div class="sgroup">Controls</div>
           <div class="set"><label for="pedal">Pedal</label>
             <select id="pedal"><option value="off">Off</option><option value="on">Bluetooth pedal or keyboard</option></select></div>
           <div class="set" id="pedalHint" hidden><span></span><span class="check">Right pedal: start, finish a take, skip playback. Left pedal: play the take again.</span></div>
@@ -805,7 +825,7 @@ function stretch(x, rate){
   }
   function renderMetro(){
     $('metro').classList.toggle('on',metro.on);
-    $('mToggle').textContent='♩ '+metro.bpm;
+    $('mToggle').innerHTML='<svg class="qn" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="9.5" cy="17.5" rx="4" ry="3" transform="rotate(-20 9.5 17.5)" fill="currentColor"/><path d="M13.1 17V3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'+metro.bpm;
     $('mToggle').setAttribute('aria-pressed',metro.on);
     $('mToggle').setAttribute('aria-label', metro.on?'Metronome on, '+metro.bpm+' beats per minute. Tap to turn off':'Metronome off. Tap to turn on');
     const d=$('dots'); if(d.children.length!==metro.bpb){ d.innerHTML='<i></i>'.repeat(metro.bpb); }
@@ -1336,8 +1356,9 @@ function stretch(x, rate){
         if(g.length) lines.push('<b>'+label+':</b> '+g.slice(0,4).map(x=>noteName(t.notes[x.i].midi,key)+' (note '+(x.i+1)+', '+sgn(Math.round((x.r-1)*100))+'%)').join(', ')+(g.length>4?' …':''));
       }
     }
-    return lines.length ? '<div class="feedback">'+lines.map(l=>'<p>'+l+'</p>').join('')+'</div>' : '';
+    return lines.length ? '<div class="feedback">'+lines.map(fbLine).join('')+'</div>' : '';
   }
+  const fbLine=l=>'<p'+(l.includes('class="good"')?' class="good"':'')+'>'+l+'</p>';
   function targetFeedbackHTML(r, key){
     if(!fb.text) return '';
     const lines=[];
@@ -1348,7 +1369,7 @@ function stretch(x, rate){
     if(missed.length) lines.push('<b>Missed:</b> '+missed.map(x=>'note '+(x.i+1)+' ('+noteName(x.it.midi,key)+')').join(', '));
     if(r.extra) lines.push('<b>'+r.extra+' extra note'+(r.extra>1?'s':'')+'</b> not in the target');
     if(fb.tune) lines.push(...tuneLines(r.items.filter(it=>it.played && it.status!=='wrong').map(it=>({midi:it.midi, cents:it.cents})), key));
-    return lines.length ? '<div class="feedback">'+lines.slice(0,6).map(l=>'<p>'+l+'</p>').join('')+'</div>' : '';
+    return lines.length ? '<div class="feedback">'+lines.slice(0,6).map(fbLine).join('')+'</div>' : '';
   }
 
   function renderSheet(){
@@ -1360,7 +1381,7 @@ function stretch(x, rate){
     if(!t && target) return renderTargetOnly();
     if(!t){ $('sheetTitle').textContent=''; meta.textContent=''; list.innerHTML='';
       paper.innerHTML='<div class="sheet-empty">Your notes will appear here</div>'; return; }
-    $('sheetTitle').textContent='Take #'+t.id;
+    $('sheetTitle').textContent='Take '+t.id;
     notesFor(t);
     if(sheetView==='pitch' && t.notes && t.notes.length) return renderPitch(t);
     if(t.target && t.notes && t.notes.length && sheetView==='result') return renderResult(t);
@@ -1377,9 +1398,9 @@ function stretch(x, rate){
     const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
     paper.innerHTML='';
     if(window.ABCJS){
-      ABCJS.renderAbc(paper, abc, {responsive:'resize', add_classes:true, foregroundColor:ink, staffwidth: lay.staffwidth, paddingleft:0, paddingright:0, paddingtop:4});
+      ABCJS.renderAbc(paper, abc.replace(/^Q:.*\n/m,''), {responsive:'resize', add_classes:true, foregroundColor:ink, staffwidth: lay.staffwidth, paddingleft:0, paddingright:0, paddingtop:14});
     } else paper.innerHTML='<div class="sheet-empty">The notation library didn’t load. Check your connection and reload the page.</div>';
-    $('sheetKey').textContent = keyLabel(t.key);
+    $('sheetKey').textContent = keyLabel(t.key)+' · '+tempo+' bpm';
     meta.innerHTML=segHTML(t);
     list.innerHTML = feedbackHTML(t, lens) + t.notes.map(n=>{
       const c=devC(n.midi,n.cents,t.key), off=fb.tune && Math.abs(c)>=20, tip=off?(c>0?' sharp':' flat'):'';
@@ -1420,7 +1441,7 @@ function stretch(x, rate){
     let abc=toAbc(ev, 60, clefSel.value, lay.bars, key, 4, map).replace(/^Q:.*\n/m,''); lastAbc=abc;
     paper.innerHTML='';
     if(!window.ABCJS){ paper.innerHTML='<div class="sheet-empty">The notation library didn’t load. Check your connection and reload the page.</div>'; return []; }
-    ABCJS.renderAbc(paper, abc, {responsive:'resize', add_classes:true, foregroundColor:css('--ink'), staffwidth:lay.staffwidth, paddingleft:0, paddingright:0, paddingtop:4});
+    ABCJS.renderAbc(paper, abc, {responsive:'resize', add_classes:true, foregroundColor:css('--ink'), staffwidth:lay.staffwidth, paddingleft:0, paddingright:0, paddingtop:14});
     if(colors){
       paper.querySelectorAll('.abcjs-note').forEach((g,i)=>{
         const c=colors[i]; if(!c) return;
@@ -1510,7 +1531,7 @@ function stretch(x, rate){
     const y=m=>PT+(hi-m)/(hi-lo)*(H-PT-PB), x=s=>PL+s/dur*(W-PL-8);
     hl={take:t, pitchX:x, dur};
     const C={line:css('--line'), muted:css('--muted'), ink:css('--ink'), ok:css('--ok'), tune:css('--listen'), bad:css('--rec')};
-    g.font='11px system-ui, sans-serif'; g.textBaseline='middle';
+    g.font='500 11px Inter, system-ui, sans-serif'; g.textBaseline='middle';
     for(let m=Math.ceil(lo); m<=Math.floor(hi); m++){
       g.strokeStyle=C.line; g.lineWidth=1; g.beginPath(); g.moveTo(PL,y(m)); g.lineTo(W,y(m)); g.stroke();
       g.fillStyle=C.muted; g.fillText(noteName(m,t.key),4,y(m));
@@ -1757,13 +1778,14 @@ function stretch(x, rate){
     const bars=Math.floor(w/4); while(history.length>bars) history.shift();
     ctx2.setTransform(dpr,0,0,dpr,0,0); ctx2.clearRect(0,0,w,h);
     history.forEach((p,i)=>{
+      if(p.v<0.004) return;                       // silence: nothing, not a dotted line
       const bh=Math.max(2,p.v*(h-8)); ctx2.fillStyle=p.c;
       ctx2.fillRect(w-(history.length-i)*4, (h-bh)/2, 3, bh);
     });
     // threshold line (mirrored, since bars are centered)
     const ty=(h-(+thr.value)*(h-8))/2;
-    ctx2.strokeStyle=cs.getPropertyValue('--ink').trim(); ctx2.globalAlpha=.55;
-    ctx2.setLineDash([5,5]); ctx2.lineWidth=1;
+    ctx2.strokeStyle=cs.getPropertyValue('--muted').trim(); ctx2.globalAlpha=.35;
+    ctx2.setLineDash([]); ctx2.lineWidth=1;
     ctx2.beginPath(); ctx2.moveTo(0,ty); ctx2.lineTo(w,ty); ctx2.moveTo(0,h-ty); ctx2.lineTo(w,h-ty); ctx2.stroke();
     ctx2.setLineDash([]); ctx2.globalAlpha=1;
 
