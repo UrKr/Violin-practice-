@@ -238,6 +238,19 @@ body.zen .sheet, body.zen .routine, body.zen #toast{display:none !important}
 .fix .what small{color:var(--muted)}
 .fix .freq{color:var(--muted); font-size:.78rem; white-space:nowrap}
 .goods{display:flex; flex-wrap:wrap; gap:4px 14px; color:var(--ok); font-weight:600; font-size:.86rem; margin:6px 2px 2px}
+/* series: N takes back to back, no playback or feedback between them, then the summary */
+.serieslink{display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin:12px 0 0; padding-top:10px; border-top:1px solid var(--line); font-size:.86rem; color:var(--muted)}
+.serieslink button{height:32px; min-width:42px; padding:0 10px; border-radius:8px; border:1px solid var(--line2); background:var(--surface); color:var(--ink); font-weight:600}
+.seriesbar{display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--line); border-radius:14px;
+  padding:10px 10px 10px 14px; margin-bottom:12px; box-shadow:var(--shadow); font-size:.9rem}
+.seriesbar .tx{flex:1; min-width:0}
+.seriesbar .tx b{font-weight:650}
+.seriesbar .tx small{display:block; color:var(--muted); font-size:.78rem}
+.seriesbar .dots2{display:flex; gap:5px}
+.seriesbar .dots2 i{width:9px; height:9px; border-radius:50%; background:var(--line2)}
+.seriesbar .dots2 i.done{background:var(--play)}
+.seriesbar button{height:34px; padding:0 12px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink); font-weight:600}
+body.series .sheet, body.series .routine, body.series .zenbar{display:none !important}
 .genhint{color:var(--muted); font-size:.78rem; margin-top:6px}
 .ear-wait{text-align:center; padding:22px 8px 10px; color:var(--muted)}
 .ear-wait b{display:block; color:var(--ink); font-size:1.05rem; font-weight:600; margin-bottom:4px}
@@ -513,6 +526,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 
   <div class="routine" id="routineBar" hidden></div>
   <div class="toast" id="toast" hidden role="status"></div>
+  <div class="seriesbar" id="seriesBar" hidden></div>
   <div class="zenbar" id="zenBar">Zen mode: just play and listen. <button id="zenOff">Show notes</button></div>
   <section class="sheet" id="sheet" aria-live="polite">
     <div class="sheet-head"><span class="left"><h2 id="sheetTitle"></h2><span class="sheet-meta" id="sheetKey"></span></span><span class="sheet-meta" id="sheetMeta"></span></div>
@@ -1579,7 +1593,40 @@ function stretch(x, rate){
 
   // ---- toast ----
   let toastT=null;
-  function toast(msg){ const el=$('toast'); el.textContent=msg; el.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>{ el.hidden=true; },3500); }
+  // ---- series: play the target N times back to back - no playback, no feedback - then the summary ----
+  let series=null, lastSeries=null;
+  const SERIES_LINK='<div class="serieslink">Play it <button data-series="3">3×</button><button data-series="5">5×</button><button data-series="10">10×</button> back to back, then see what keeps going wrong</div>';
+  function renderSeriesBar(){
+    const bar=$('seriesBar');
+    if(!series){ bar.hidden=true; document.body.classList.remove('series'); return; }
+    document.body.classList.add('series'); bar.hidden=false;
+    const k=series.ids.length;
+    bar.innerHTML='<span class="tx"><b>Series · take '+Math.min(k+1,series.n)+' of '+series.n+'</b><small>'+(k ? 'Keep going: no playback until the end' : 'Play when ready: no playback until the end')+'</small></span>'
+      +'<span class="dots2">'+Array.from({length:series.n},(_,i)=>'<i'+(i<k?' class="done"':'')+'></i>').join('')+'</span><button id="seriesStop">Stop</button>';
+  }
+  async function startSeries(n){
+    if(!target || target.ear) return;
+    n=Math.min(n, MAX_TAKES);
+    series={n, ids:[], str:target.str};
+    stopPlayback(); renderSeriesBar(); window.scrollTo({top:0, behavior:'smooth'});
+    if(state==='idle') await start();
+    else if(state==='playing'||state==='cooldown') afterPlayback();
+  }
+  function endSeries(){
+    const s0=series; series=null; renderSeriesBar();
+    if(!s0) return;
+    const done=takes.filter(k=>s0.ids.includes(k.id) && k.notes);
+    if(active) stop();
+    if(done.length>=2){
+      lastSeries={ids:s0.ids.slice(), str:s0.str};
+      shownTake=done[0]; sheetView='summary'; renderTakes(); renderSheet();
+      toast('Series done: '+done.length+' takes. Here is what keeps going wrong.');
+    } else { renderTakes(); renderSheet(); }
+  }
+  $('seriesBar').addEventListener('click',e=>{ if(e.target.id==='seriesStop') endSeries(); });
+  $('sheet').addEventListener('click',e=>{ const b=e.target.closest('[data-series]'); if(b){ e.stopPropagation(); startSeries(+b.dataset.series); } });
+
+  function toast(msg){ if(series) return; const el=$('toast'); el.textContent=msg; el.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>{ el.hidden=true; },3500); }
 
   // ---- progress per exercise, by day ----
   let prog={}; try{ prog=JSON.parse(localStorage.getItem('pib-progress')||'{}'); }catch(e){}
@@ -1909,9 +1956,11 @@ function stretch(x, rate){
     shownTake=take; renderTakes();
     $('paper').innerHTML='<div class="sheet-empty">Reading the notes…</div>';
 
-    if(auto.checked && active) playTake(take, +rep.value);
+    if(series){ series.ids.push(take.id); take.series=true; setState(active?'listening':'idle'); renderSeriesBar(); }
+    else if(auto.checked && active) playTake(take, +rep.value);
     else setState(active?'listening':'idle');
-    setTimeout(()=>{ take.A=A4(); take.detail=detail(); take.notes=detectNotes(data,sr,A4(),take.detail); take.bpm=guessTempo(take.notes); take.key=guessKey(take.notes); recordTendency(take); onAnalyzed(take); if(shownTake===take) renderSheet(); },60);
+    setTimeout(()=>{ take.A=A4(); take.detail=detail(); take.notes=detectNotes(data,sr,A4(),take.detail); take.bpm=guessTempo(take.notes); take.key=guessKey(take.notes); recordTendency(take); onAnalyzed(take); if(shownTake===take) renderSheet();
+      if(series && series.ids.length>=series.n && takes.filter(k=>series.ids.includes(k.id)).every(k=>k.notes)) endSeries(); },60);
   }
 
   async function playTake(take, times){
@@ -2134,8 +2183,16 @@ function stretch(x, rate){
   const beatsTxt=b=>{ const q=Math.max(1,Math.round(Math.abs(b)*4)); return ({1:'¼',2:'½',3:'¾',4:'1'}[q]||(q/4).toFixed(2).replace(/\.?0+$/,''))+' beat'; };
   // ---- several takes of the same target: the mistakes that keep coming back ----
   const sameTargetTakes=tt=>takes.filter(k=>k.target && k.target.str===tt.str && k.notes && k.notes.length);
-  function summarize(tt){
-    const list=sameTargetTakes(tt).slice().reverse();          // oldest first
+  // the takes a summary is about: the series the shown take belongs to, else the recent takes of its target
+  function summaryTakes(t){
+    const tt=t.target;
+    if(lastSeries && lastSeries.str===tt.str && lastSeries.ids.includes(t.id)){
+      const l=takes.filter(k=>lastSeries.ids.includes(k.id) && k.notes && k.notes.length); if(l.length>=2) return {list:l, series:true};
+    }
+    return {list:sameTargetTakes(tt), series:false};
+  }
+  function summarize(tt, given){
+    const list=(given||sameTargetTakes(tt)).slice().reverse();          // oldest first
     const key=keyOf(tt.notes), n=tt.notes.length;
     const per=tt.notes.map(()=>({wrong:{}, nWrong:0, missed:0, cents:[], long:[], short:[], early:[], late:[]}));
     const right=[]; let extra=0;
@@ -2176,8 +2233,8 @@ function stretch(x, rate){
   }
   const nm2=(m,key,c)=>'<span class="c-'+c+'">'+noteName(m,key)+'</span>';
   function renderSummary(t){
-    const tt=t.target, S=summarize(tt);
-    $('sheetTitle').textContent='Last '+S.K+' takes'; $('sheetKey').textContent='';
+    const tt=t.target, ST=summaryTakes(t), S=summarize(tt, ST.list);
+    $('sheetTitle').textContent=(ST.series?'Series of ':'Last ')+S.K+' takes'; $('sheetKey').textContent='';
     $('firstnote').hidden=true; $('sheetMeta').innerHTML=segHTML(t);
     const col={bad:css('--rec'), tune:css('--listen'), miss:css('--muted'), ink:css('--ink')};
     // the target, each note coloured by its most important recurring problem (green: fine every time)
@@ -2250,7 +2307,7 @@ function stretch(x, rate){
     $('sheetTitle').textContent='Take '+t.id;
     notesFor(t);
     if(sheetView==='pitch' && t.notes && t.notes.length) return renderPitch(t);
-    if(t.target && t.notes && t.notes.length && sheetView==='summary' && sameTargetTakes(t.target).length>=2) return renderSummary(t);
+    if(t.target && t.notes && t.notes.length && sheetView==='summary' && summaryTakes(t).list.length>=2) return renderSummary(t);
     if(t.target && t.notes && t.notes.length && (sheetView==='result' || sheetView==='summary')) return renderResult(t);
     if(!t.notes){ paper.innerHTML='<div class="sheet-empty">Reading the notes…</div>'; return; }
     if(!t.notes.length){ meta.textContent=''; list.innerHTML='';
@@ -2289,7 +2346,7 @@ function stretch(x, rate){
   const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   function segHTML(t){
     const b=(v,label,on)=>'<button data-view="'+v+'" aria-pressed="'+on+'">'+label+'</button>';
-    if(t && t.target){ const n=sameTargetTakes(t.target).length;
+    if(t && t.target){ const n=summaryTakes(t).list.length;
       return '<span class="seg">'+b('result','Target',sheetView==='result')+b('played','Played',sheetView==='played')+b('pitch','Pitch',sheetView==='pitch')
         +(n>=2?b('summary','Summary ('+n+')',sheetView==='summary'):'')+'</span>'; }
     return '<span class="seg">'+b('played','Notes',sheetView!=='pitch')+b('pitch','Pitch',sheetView==='pitch')+'</span>';
@@ -2403,7 +2460,7 @@ function stretch(x, rate){
     }
     const key=keyOf(target.notes);
     hl={take:null, target:true, els:drawStaff(targetEvents(target), key, null, tBeats(target)), cur:-1};
-    $('notelist').innerHTML=HEAR+progressHTML(target.str);
+    $('notelist').innerHTML=HEAR+progressHTML(target.str)+SERIES_LINK;
   }
 
   function renderResult(t){
@@ -2432,7 +2489,7 @@ function stretch(x, rate){
       if(cnt.missed) html+=dot(col.missed, cnt.missed+' missed');
       if(r.extra) html+=dot(css('--ink'), r.extra+' extra');
     }
-    $('notelist').innerHTML='<div class="score">'+html+'</div>'+FX.html+HEAR+SHARE;
+    $('notelist').innerHTML='<div class="score">'+html+'</div>'+FX.html+HEAR+SHARE+SERIES_LINK;
     t.lastSummary=(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+(cnt.tune?', '+cnt.tune+' out of tune':'')+(cnt.wrong?', '+cnt.wrong+' wrong':'')+(cnt.missed?', '+cnt.missed+' missed':'');
     makeShareImage();
   }

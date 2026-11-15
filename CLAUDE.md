@@ -117,6 +117,12 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   missed 3, rhythm 2, intonation 1.5 scaled by size and only when off the same way in 40%+ of takes),
   the target staff coloured by each note's main problem with 'k/n' above, and right notes per take.
   From the 3rd take the top one also shows in the normal feedback as 'Most often'.
+- **Series** (under target notes / a target result: 'Play it 3x 5x 10x back to back'): no playback and no
+  feedback between takes (body.series hides the sheet; a bar counts takes, Stop ends early); after the last
+  take listening stops and the Summary of exactly those takes opens (`lastSeries`, `summaryTakes`).
+- **Readable mistakes** (`fixList`): one numbered row per note in plain words ('you played C4', 'held 37%
+  too long', '27 cents flat'), the same number above the note on the staff; wrong/missed, then rhythm,
+  then tuning; general points (intervals, extra notes, 'Most often') and a ✓ line for what went well.
 - **Focus** (row under the metronome): All / Tuning / Rhythm / Notes / Zen set the Feedback switches in one
   tap (`FOCUS` presets: intonation, rhythm, written feedback; Zen = zen mode); no button is lit for a custom mix.
 - **Routine** (notes panel): exercises in order, each with its own tempo (`pib-routine`); a bar above the
