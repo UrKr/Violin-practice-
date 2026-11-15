@@ -311,6 +311,8 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
             <select id="ladder"><option value="0">Off</option><option value="2">After 2 clean takes</option><option value="3">After 3 clean takes</option><option value="5">After 5 clean takes</option></select></div>
           <div class="set"><label for="ladderStep">By</label>
             <select id="ladderStep"><option value="2">2 bpm</option><option value="4" selected>4 bpm</option><option value="6">6 bpm</option></select></div>
+          <div class="set"><label for="beatMode">Metronome</label>
+            <select id="beatMode"><option value="visual">Visual only</option><option value="click">Click (with headphones)</option><option value="vibrate" id="vibOpt">Vibrate</option></select></div>
           <div class="set"><label for="bpb">Beats per bar</label>
             <select id="bpb"><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option></select></div>
           <div class="set"><label for="bpm">Tempo</label><input type="range" id="bpm" min="40" max="200" step="1" value="90"><output id="bpmVal"></output></div>
@@ -1056,7 +1058,9 @@ function stretch(x, rate){
     const d=$('dots'); if(d.children.length!==metro.bpb){ d.innerHTML='<i></i>'.repeat(metro.bpb); }
     updateLabels();
   }
-  $('mToggle').onclick=()=>{ metro.on=!metro.on; if(metro.on) metro.t0=clock()+0.05; renderMetro(); save(); };
+  $('mToggle').onclick=()=>{ metro.on=!metro.on; if(metro.on) metro.t0=clock()+0.05; clickedUpTo=-1;
+    if(metro.on && $('beatMode').value==='click'){ ensureAC(); ac.resume().then(anchorClock); }
+    renderMetro(); save(); };
   for(const [id,dir] of [['mMinus',-1],['mPlus',1]]){
     const el=$(id); let hold=null, rep=null;
     const go=()=>setMetroBpm(metro.bpm+dir);
@@ -1402,13 +1406,13 @@ function stretch(x, rate){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target&&!target.ear?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target&&!target.ear?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
     if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
       if(s.manualBpm) bpm.value=s.manualBpm; if(typeof s.autoBpm==='boolean') autoBpm.checked=s.autoBpm; halfSpeed=!!s.half;
       if(s.fb) for(const k in fb) if(typeof s.fb[k]==='boolean') fb[k]=s.fb[k];
-      if(s.pedal) $('pedal').value=s.pedal; if(s.inton) $('inton').value=s.inton; if(s.instr) $('instr').value=s.instr; }
+      if(s.pedal) $('pedal').value=s.pedal; if(s.inton) $('inton').value=s.inton; if(s.instr) $('instr').value=s.instr; if(s.beat) $('beatMode').value=s.beat; }
   }catch(e){}
   $('bpb').addEventListener('change',()=>{ metro.bpb=+$('bpb').value; renderMetro(); save(); });
   [thr,sil,rep,clefSel,bpm,autoBpm].forEach(el=>el.addEventListener('change',save));
@@ -2230,8 +2234,27 @@ function stretch(x, rate){
     });
   }
 
+  // ---- audible metronome (for headphones: the mic must not hear it): clicks scheduled on the audio
+  // clock a little ahead, accent on the downbeat ----
+  let clickedUpTo=-1;
+  function scheduleClicks(){
+    if(!metro.on || $('beatMode').value!=='click' || !ac || !clockReady || ac.state!=='running') return;
+    const now=ac.currentTime, bl=beatLen();
+    let k=Math.max(clickedUpTo+1, Math.ceil((now-metro.t0)/bl));
+    for(; metro.t0+k*bl < now+0.12; k++){
+      const at=metro.t0+k*bl, accent=((k%metro.bpb)+metro.bpb)%metro.bpb===0;
+      const o=ac.createOscillator(), g=ac.createGain();
+      o.frequency.value=accent?1760:1320; g.gain.setValueAtTime(0,at); g.gain.linearRampToValueAtTime(accent?0.5:0.3,at+0.002); g.gain.exponentialRampToValueAtTime(0.001,at+0.04);
+      o.connect(g); g.connect(ac.destination); o.start(at); o.stop(at+0.05);
+      clickedUpTo=k;
+    }
+  }
+  $('beatMode').addEventListener('change',()=>{ save(); clickedUpTo=-1;
+    if($('beatMode').value==='click'){ ensureAC(); ac.resume(); anchorClock(); } });
+  if(!navigator.vibrate){ $('vibOpt').remove(); if($('beatMode').value==='vibrate') $('beatMode').value='visual'; }
+
   function draw(){
-    updatePlayhead();
+    updatePlayhead(); scheduleClicks();
     const dpr=window.devicePixelRatio||1, w=canvas.clientWidth, h=canvas.clientHeight;
     if(canvas.width!==w*dpr||canvas.height!==h*dpr){ canvas.width=w*dpr; canvas.height=h*dpr; }
     const cs=getComputedStyle(document.documentElement);
@@ -2260,7 +2283,8 @@ function stretch(x, rate){
         const pulse=Math.max(0,1-frac*3.5), accent=inBar===0;
         ring.style.opacity=(pulse*(accent?1:0.45)).toFixed(3);
         ring.style.borderWidth=accent?'5px':'3px';
-        if(draw.lastIdx!==idx){ draw.lastIdx=idx; [...$('dots').children].forEach((d,i)=>d.classList.toggle('now',i===inBar)); }
+        if(draw.lastIdx!==idx){ draw.lastIdx=idx; [...$('dots').children].forEach((d,i)=>d.classList.toggle('now',i===inBar));
+          if($('beatMode').value==='vibrate' && navigator.vibrate) try{ navigator.vibrate(inBar===0?45:20); }catch(e){} }
       } else ring.style.opacity=0;
     } else if(ring.style.opacity!=='0'){ ring.style.opacity=0; [...$('dots').children].forEach(d=>d.classList.remove('now')); }
     orb.style.setProperty('--lvl', state==='recording'||state==='listening' ? live.toFixed(3) : 0);

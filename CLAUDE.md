@@ -73,7 +73,23 @@ detection on it and prints then-vs-now, so a fix can be checked against the repo
 fundamental open strings, octave leaps, out-of-tune notes, a note hovering between two semitones)
 with the expected notes. Run it after any change to `detectNotes`, and add a case for each fix.
 
+## Practice tools
+- **Instruments** (Settings > Pitch): violin, viola (alto clef, C G D A), cello (bass/tenor clef, C G D A).
+  Tuner strings, drone octave and the generator's lowest note follow it.
+- **Target notes syntax:** `G3 A B C4` (octave optional: nearest to the previous note). A length in beats
+  can follow, carried over until it changes: `G3:1 A B D:2`, `A:1/2`, rests `r:1`. Without lengths a
+  target is pitch only. Rhythm is judged against the metronome tempo (if the take used it) or the
+  best-fitting tempo: held vs written length (+/-25%) and early/late (>= 1/4 beat), see `targetRhythm`.
+- **Generator** (notes panel): scales (major, three minors), arpeggios, broken thirds, 1-3 octaves,
+  spelled from the key (`makeScale`), written compactly with `compactTarget`.
+- **Exercise links:** `?t=<notes>&n=<name>` loads and saves an exercise. **Play by ear:** a hidden random
+  phrase in the generator's key, revealed after a take.
+- **Practice panel** (chart icon): practice time per day (`pib-time`), streak, and per-note intonation
+  tendencies over 2 weeks (`pib-tend`, raw cents, judged when shown).
+- **Pitch view:** vibrato rate/width/evenness and bow steadiness (`soundOf`), and Compare with another take.
+- **Metronome** (Settings > Tempo): visual only, click (scheduled on the audio clock; needs headphones so
+  the mic doesn't hear it) or vibrate (Android).
+
 ## Ideas discussed but not built
-- Note lengths in target mode, with rhythm judged against the metronome.
 - A teacher version (assign exercises, see students' progress and takes); would need accounts and a server.
-- Viola and cello support (C string range).
+  (Exercise links are the light version without a server.)
