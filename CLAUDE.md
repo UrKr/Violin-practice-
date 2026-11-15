@@ -23,7 +23,8 @@ Hosted on GitHub Pages from the `main` branch. Changes should be committed to `m
 - **iPhone:** while the mic is open, iOS routes audio to the earpiece. The app closes the mic before
   playback and reopens it afterwards (`micOff` / `micOn`, `navigator.audioSession`). Keep this.
 - Everything runs on the device. Recordings are never uploaded. Settings, saved exercises and
-  progress live in localStorage.
+  progress live in localStorage; the last 10 takes (16-bit audio + metadata) live in IndexedDB (`pib` / `takes`)
+  and are restored, and their notes re-detected, when the page opens.
 - The player is a violinist. Test changes against real violin behaviour: bow swells, vibrato,
   scratchy attacks, held first notes.
 - UI is deliberately minimal: big state button, icons, little explanatory text.

@@ -682,6 +682,54 @@ function stretch(x, rate){
   // (so the note being played can be lit up): see updatePlayhead()
   let playing=null, hl=null, lastAbc='';
 
+  // ---- recordings kept on the device (IndexedDB), so takes survive closing the page ----
+  // Audio is stored as 16-bit samples. Nothing here ever leaves the device.
+  const MAX_TAKES=10;
+  let dbP=null;
+  function db(){
+    if(!dbP) dbP=new Promise((ok,bad)=>{
+      if(!window.indexedDB) return bad(new Error('no IndexedDB'));
+      const r=indexedDB.open('pib',1);
+      r.onupgradeneeded=()=>r.result.createObjectStore('takes',{keyPath:'id'});
+      r.onsuccess=()=>ok(r.result); r.onerror=()=>bad(r.error);
+    });
+    return dbP;
+  }
+  async function dbDo(mode, fn){
+    try{ const d=await db(); return await new Promise((ok,bad)=>{ const tx=d.transaction('takes',mode), st=tx.objectStore('takes');
+      const r=fn(st); tx.oncomplete=()=>ok(r && r.result); tx.onerror=()=>bad(tx.error); }); }
+    catch(e){ return null; }
+  }
+  function storeTake(t){
+    const x=t.buffer.getChannelData(0), pcm=new Int16Array(x.length);
+    for(let i=0;i<x.length;i++){ const v=Math.max(-1,Math.min(1,x[i])); pcm[i]=v<0?v*0x8000:v*0x7fff; }
+    return dbDo('readwrite', st=>st.put({id:t.id, sr:t.buffer.sampleRate, pcm:pcm.buffer, dur:t.dur, audioStart:t.audioStart,
+      barStartAbs:t.barStartAbs, metro:t.metro, target:t.target, A:t.A||A4(), saved:Date.now()}));
+  }
+  const forgetTake=id=>dbDo('readwrite', st=>st.delete(id));
+  const forgetAllTakes=()=>dbDo('readwrite', st=>st.clear());
+  function analyze(t){ const d=t.buffer.getChannelData(0); t.A=t.A||A4(); t.notes=detectNotes(d,t.buffer.sampleRate,t.A); t.bpm=guessTempo(t.notes); t.key=guessKey(t.notes); }
+  async function restoreTakes(){
+    const rows=await dbDo('readonly', st=>st.getAll());
+    if(!rows || !rows.length) return;
+    rows.sort((a,b)=>b.id-a.id);
+    const old=rows.slice(MAX_TAKES); old.forEach(r=>forgetTake(r.id));
+    const back=rows.slice(0,MAX_TAKES).map(r=>{
+      const pcm=new Int16Array(r.pcm), n=pcm.length;
+      let buf; try{ buf=new AudioBuffer({length:n, sampleRate:r.sr, numberOfChannels:1}); }
+      catch(e){ const OC=window.OfflineAudioContext||window.webkitOfflineAudioContext; buf=new OC(1,1,r.sr).createBuffer(1,n,r.sr); }
+      const x=buf.getChannelData(0); for(let i=0;i<n;i++) x[i]=pcm[i]/(pcm[i]<0?0x8000:0x7fff);
+      return {id:r.id, buffer:buf, dur:r.dur, audioStart:r.audioStart, barStartAbs:r.barStartAbs, metro:r.metro, target:r.target, A:r.A, restored:true};
+    }).filter(t=>!takes.some(k=>k.id===t.id));
+    takeCounter=Math.max(takeCounter, ...back.map(t=>t.id));
+    const fresh=takes.length>0;
+    takes=takes.concat(back).slice(0,MAX_TAKES);
+    if(!fresh){ shownTake=takes[0]; sheetView='result'; }
+    renderTakes();
+    // read the notes again, newest first, a little at a time so the page stays responsive
+    back.forEach((t,i)=>setTimeout(()=>{ if(!t.notes){ analyze(t); if(shownTake===t) renderSheet(); } }, 30+i*60));
+  }
+
   // ---- metronome (visual only) ----
   const metro={on:false, bpm:72, bpb:4, t0:0};
   let clockReady=false;
@@ -1042,7 +1090,8 @@ function stretch(x, rate){
       const snapped=Math.round((recStart-0.02-take.metro.t0)/six);
       take.barStartAbs = take.metro.t0 + Math.floor(snapped/BAR)*BAR*six;
     }
-    takes.unshift(take); if(takes.length>10) takes.pop();
+    takes.unshift(take); while(takes.length>MAX_TAKES) forgetTake(takes.pop().id);
+    storeTake(take);
     shownTake=take; renderTakes();
     $('paper').innerHTML='<div class="sheet-empty">Reading the notes…</div>';
 
@@ -1117,12 +1166,15 @@ function stretch(x, rate){
       b.className='chip'+(t===shownTake?' shown':'');
       b.innerHTML=ICONS.play+'<span>#'+t.id+'</span><span>'+t.dur.toFixed(1)+'s</span>';
       b.setAttribute('aria-label','Play take '+t.id);
-      b.onclick=()=>{ if(!ac || state==='recording') return; shownTake=t; renderTakes(); renderSheet(); playTake(t,1); };
+      b.onclick=async()=>{ if(state==='recording') return;
+        shownTake=t; renderTakes(); renderSheet();
+        if(!ac){ ensureAC(); try{ await ac.resume(); }catch(e){} anchorClock(); }
+        playTake(t,1); };
       box.appendChild(b);
     }
     if(takes.length){
       const c=document.createElement('button'); c.className='chip clear'; c.textContent='Clear';
-      c.onclick=()=>{ takes=[]; shownTake=null; renderTakes(); renderSheet(); };
+      c.onclick=()=>{ takes=[]; shownTake=null; forgetAllTakes(); renderTakes(); renderSheet(); };
       box.appendChild(c);
     }
   }
@@ -1138,7 +1190,7 @@ function stretch(x, rate){
     const tp=$('targetPanel'); if(!tp.hidden && !tp.contains(e.target) && e.target!==$('targetBtn')) openTarget(false);
     const up=$('tunerPanel'); if(tunerOpen && !up.contains(e.target) && !$('tunerBtn').contains(e.target)) openTuner(false); });
   $('settings').addEventListener('toggle',()=>{ if($('settings').open){ openTarget(false); if(tunerOpen) openTuner(false); } });
-  $('clear').onclick=()=>{ takes=[]; shownTake=null; renderTakes(); renderSheet(); };
+  $('clear').onclick=()=>{ takes=[]; shownTake=null; forgetAllTakes(); renderTakes(); renderSheet(); };
   [bpm,autoBpm,clefSel].forEach(el=>el.addEventListener('input',()=>{ updateLabels(); renderSheet(); }));
   autoBpm.addEventListener('change',()=>{ updateLabels(); renderSheet(); });
 
@@ -1558,7 +1610,7 @@ function stretch(x, rate){
     if(state==='recording' && ac) timer.textContent=fmt(ac.currentTime-recStart);
     requestAnimationFrame(draw);
   }
-  setState('idle'); renderSheet(); renderMetro();
+  setState('idle'); renderSheet(); renderMetro(); restoreTakes();
   requestAnimationFrame(draw);
 })();
 </script>
