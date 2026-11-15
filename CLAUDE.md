@@ -97,6 +97,11 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   phrase in the generator's key, revealed after a take.
 - **Practice panel** (chart icon): practice time per day (`pib-time`), streak, and per-note intonation
   tendencies over 2 weeks (`pib-tend`, raw cents, judged when shown).
+  At the top, **Today** (`planToday`): up to 3 exercises from saved / routine / played ones, scored by days
+  since practised, last session's accuracy (`pib-progress`) and recurring problems (`pib-issues`, stored
+  after each take of a target with 2+ takes), minus 4 if practised today; each with its reasons and a
+  Practise button (target + its last tempo). **Backup / Restore** (Settings > Controls) saves every pib-*
+  entry and optionally the recent takes in one JSON file.
 - **Pitch view:** vibrato rate/width/evenness and bow steadiness (`soundOf`), and Compare with another take.
 - **Metronome** (Settings > Tempo): visual only, click (scheduled on the audio clock; needs headphones so
   the mic doesn't hear it) or vibrate (Android).

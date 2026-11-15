@@ -352,6 +352,12 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 .cmp{display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:.84rem; color:var(--muted); margin:2px 0 0}
 .cmp select{font:inherit; font-size:.84rem; height:32px; padding:0 8px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink)}
 .cmpkey i{display:inline-block; width:16px; height:2px; background:var(--muted); opacity:.6; vertical-align:middle; margin-right:5px}
+.plan{display:flex; flex-direction:column; gap:6px; margin:0 0 16px}
+.plan .pl{display:flex; align-items:center; gap:10px; background:var(--bg); border-radius:12px; padding:9px 10px 9px 12px}
+.plan .pt{flex:1; min-width:0}
+.plan .pt b{display:block; font-weight:650; font-size:.92rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.plan .pt small{display:block; color:var(--muted); font-size:.78rem; line-height:1.35; margin-top:1px}
+.plan button{flex:none; height:34px; padding:0 12px; border-radius:10px; border:none; background:var(--play); color:#fff; font-weight:600; font-size:.84rem}
 .stats .empty{color:var(--muted); font-size:.88rem; padding:4px 0 10px}
 .prog .cap{font-size:.85rem; color:var(--muted); margin-bottom:6px}
 .prog .bars{display:flex; gap:4px}
@@ -1693,6 +1699,52 @@ function stretch(x, rate){
     return '<div class="prog"><div class="cap">Notes right and in tune, last 2 weeks</div><div class="bars">'+bars+'</div>'+(txt?'<div class="ptxt">'+txt+'</div>':'')+'</div>';
   }
 
+  // ---- each exercise's recurring problems, kept for the practice plan (pib-issues) ----
+  let issuesStore=null;
+  function rememberIssues(t){
+    if(!t.target || t.target.ear || sameTargetTakes(t.target).length<2) return;
+    issuesStore=issuesStore||loadJ('pib-issues',{});
+    const S=summarize(t.target), plain=h=>h.replace(/<[^>]+>/g,'');
+    issuesStore[t.target.str]={when:today(), K:S.K, top:S.issues.filter(x=>x.i>=0).slice(0,2).map(x=>({txt:noteName(t.target.notes[x.i],S.key)+' '+plain(x.part), n:x.n}))};
+    saveJ('pib-issues',issuesStore);
+  }
+
+  // ---- what to practise today: saved, routine and played exercises, weighed by how long ago, how well
+  // the last session went and whether a mistake keeps coming back ----
+  function planToday(){
+    issuesStore=issuesStore||loadJ('pib-issues',{});
+    const cand=new Map();
+    const add=(str,name,bpm)=>{ if(!str) return; const c=cand.get(str)||{str,name:null,bpm:null}; c.name=c.name||name; c.bpm=c.bpm||bpm; cand.set(str,c); };
+    saved.forEach(x=>add(x.str,x.name)); routine.items.forEach(x=>add(x.str,x.name,x.bpm)); Object.keys(prog).forEach(k=>add(k,null));
+    const now=new Date(), dayDiff=d=>Math.round((now-new Date(d+'T12:00'))/864e5);
+    const out=[];
+    for(const c of cand.values()){
+      const days=Object.keys(prog[c.str]||{}).sort(), last=days[days.length-1], L=last?prog[c.str][last]:null;
+      const since=last?dayDiff(last):null, acc=L&&L.total?L.right/L.total:null, iss=issuesStore[c.str];
+      let score = since===null ? 4 : Math.min(since,10);
+      const why=[];
+      if(since===null) why.push('not practised yet'); else if(since>=2) why.push('last practised '+since+' days ago');
+      if(acc!==null && acc<0.9){ score+=(1-acc)*8; why.push('last time '+Math.round(acc*100)+'% right'); }
+      if(iss && iss.top.length){ score+=2+iss.top[0].n/iss.K; why.push(iss.top[0].txt+' ('+iss.top[0].n+' of '+iss.K+' takes)'); }
+      if(since===0){ score-=4; why.push('already '+L.takes+' take'+(L.takes>1?'s':'')+' today'); }
+      const bpm=c.bpm || (L&&L.bpm) || null;
+      out.push({...c, score, why, bpm, name:c.name||(c.str.length>28?c.str.slice(0,28)+'…':c.str)});
+    }
+    return out.filter(x=>x.score>0.5).sort((a,b)=>b.score-a.score).slice(0,3);
+  }
+  function planHTML(){
+    const P=planToday();
+    if(!P.length) return '<label>Today</label><div class="empty">Save exercises in the notes panel, or add them to a routine, and the app will suggest what to practise each day.</div>';
+    return '<label>Today</label><div class="plan">'+P.map((x,k)=>'<div class="pl"><div class="pt"><b></b><small>'+x.why.map(w=>w.replace(/</g,'&lt;')).join(' · ')+'</small></div><button data-plan="'+k+'">Practise</button></div>').join('')+'</div>';
+  }
+  function loadPlanItem(x){
+    setTarget(x.str, true);
+    if(x.bpm){ if(!metro.on){ metro.on=true; metro.t0=clock()+0.05; } setMetroBpm(x.bpm); }
+    streak=0; shownTake=null; sheetView='result';
+    openStats(false); save(); renderTakes(); renderSheet(); renderMetro(); refreshDrone();
+    toast('“'+x.name+'”'+(x.bpm?' at '+x.bpm+' bpm':''));
+  }
+
   // ---- practice log: seconds practised per day (while listening, page visible) ----
   const loadJ=(k,d)=>{ try{ return JSON.parse(localStorage.getItem(k)||'null')||d; }catch(e){ return d; } };
   const saveJ=(k,v)=>{ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} };
@@ -1728,7 +1780,7 @@ function stretch(x, rate){
     const bars=days.map(dt=>{ const v=sec(dt), L=dt.toLocaleDateString(undefined,{weekday:'narrow'});
       return v<30 ? '<div class="bar none"><div class="col"><span></span></div><em>'+L+'</em></div>'
         : '<div class="bar" title="'+fmtMin(v)+'"><div class="col"><span style="height:'+Math.max(6,Math.round(100*v/max))+'%"></span></div><em>'+L+'</em></div>'; }).join('');
-    let html='<div class="stats"><label>Practice</label><div class="nums">'
+    let html='<div class="stats">'+planHTML()+'<label>Practice</label><div class="nums">'
       +'<div class="num"><b>'+fmtMin(todaySec)+'</b><span>today</span></div>'
       +'<div class="num"><b>'+fmtMin(week)+'</b><span>last 7 days</span></div>'
       +'<div class="num"><b>'+streakDays+'</b><span>day'+(streakDays===1?'':'s')+' in a row</span></div></div>'
@@ -1764,9 +1816,11 @@ function stretch(x, rate){
   let statsOpen=false;
   function openStats(open){
     statsOpen=open; $('statsPanel').hidden=!open; $('statsBtn').setAttribute('aria-expanded',open);
-    if(open){ openTarget(false); $('settings').open=false; if(tunerOpen) openTuner(false); $('statsPanel').innerHTML=statsHTML(); }
+    if(open){ openTarget(false); $('settings').open=false; if(tunerOpen) openTuner(false); $('statsPanel').innerHTML=statsHTML();
+      const P=planToday(); $('statsPanel').querySelectorAll('.pl').forEach((row,k)=>{ row.querySelector('b').textContent=P[k].name; }); }
   }
   $('statsBtn').onclick=e=>{ e.stopPropagation(); openStats(!statsOpen); };
+  $('statsPanel').addEventListener('click',e=>{ const b=e.target.closest('[data-plan]'); if(b){ e.stopPropagation(); loadPlanItem(planToday()[+b.dataset.plan]); } });
 
   // ---- after each take: score it, log it, climb the tempo ladder ----
   let streak=0, pendingBpm=null;
@@ -2013,7 +2067,7 @@ function stretch(x, rate){
     if(series){ series.ids.push(take.id); take.series=true; setState(active?'listening':'idle'); renderSeriesBar(); }
     else if(auto.checked && active) playTake(take, +rep.value);
     else setState(active?'listening':'idle');
-    setTimeout(()=>{ take.A=A4(); take.detail=detail(); take.notes=detectNotes(data,sr,A4(),take.detail); take.bpm=guessTempo(take.notes); take.key=guessKey(take.notes); recordTendency(take); onAnalyzed(take); if(shownTake===take) renderSheet();
+    setTimeout(()=>{ take.A=A4(); take.detail=detail(); take.notes=detectNotes(data,sr,A4(),take.detail); take.bpm=guessTempo(take.notes); take.key=guessKey(take.notes); recordTendency(take); onAnalyzed(take); rememberIssues(take); if(shownTake===take) renderSheet();
       if(series && series.ids.length>=series.n && takes.filter(k=>series.ids.includes(k.id)).every(k=>k.notes)) endSeries(); },60);
   }
 
