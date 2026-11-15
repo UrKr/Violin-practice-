@@ -117,6 +117,8 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   missed 3, rhythm 2, intonation 1.5 scaled by size and only when off the same way in 40%+ of takes),
   the target staff coloured by each note's main problem with 'k/n' above, and right notes per take.
   From the 3rd take the top one also shows in the normal feedback as 'Most often'.
+- **Focus** (row under the metronome): All / Tuning / Rhythm / Notes / Zen set the Feedback switches in one
+  tap (`FOCUS` presets: intonation, rhythm, written feedback; Zen = zen mode); no button is lit for a custom mix.
 - **Routine** (notes panel): exercises in order, each with its own tempo (`pib-routine`); a bar above the
   sheet steps through them; the position and any tempo change (ladder or +/-) are remembered per exercise.
 

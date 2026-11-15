@@ -225,6 +225,8 @@ body.zen .sheet, body.zen .routine, body.zen #toast{display:none !important}
 .trend span{align-self:center; margin-right:8px; white-space:nowrap}
 .trend i{display:block; width:14px; border-radius:3px 3px 0 0}
 .trend b{align-self:center; margin-left:8px; color:var(--ink); font-variant-numeric:tabular-nums}
+.focus{margin-top:2px; background:color-mix(in srgb, var(--line) 75%, var(--bg))}
+.focus button{padding:6px 11px; font-size:.84rem}
 .genhint{color:var(--muted); font-size:.78rem; margin-top:6px}
 .ear-wait{text-align:center; padding:22px 8px 10px; color:var(--muted)}
 .ear-wait b{display:block; color:var(--ink); font-size:1.05rem; font-weight:600; margin-bottom:4px}
@@ -485,6 +487,9 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
       <button class="drone" id="droneBtn" aria-pressed="false">Drone</button>
     </div>
     <div class="dots" id="dots" aria-hidden="true"></div>
+    <div class="seg focus" id="focusSeg" role="group" aria-label="What to focus on">
+      <button data-f="all">All</button><button data-f="tuning">Tuning</button><button data-f="rhythm">Rhythm</button><button data-f="notes">Notes</button><button data-f="zen">Zen</button>
+    </div>
     <div class="live" id="live" hidden>
       <span class="lnext" id="liveNext"></span>
       <span class="lbar" id="liveBar"><i id="liveFill"></i><b></b></span>
@@ -1390,7 +1395,24 @@ function stretch(x, rate){
     $('tStrings').innerHTML=instr().strings.map(m=>'<span data-m="'+m+'">'+noteName(m,KEYS[0]).replace(/-?\d+$/,'')+'</span>').join('');
   }
   $('instr').addEventListener('change',()=>{ save(); renderStrings(); renderSheet(); refreshDrone(); });
-  function setZen(on){ document.body.classList.toggle('zen',on); $('zenBox').checked=on; save(); if(!on) renderSheet(); }
+  function setZen(on){ document.body.classList.toggle('zen',on); $('zenBox').checked=on; save(); if(!on) renderSheet(); renderFocus(); }
+  // ---- focus: one tap sets what is judged and shown ----
+  const FOCUS={ all:{tune:true, rhythm:true, text:true}, tuning:{tune:true, rhythm:false, text:true},
+                rhythm:{tune:false, rhythm:true, text:true}, notes:{tune:false, rhythm:false, text:false} };
+  function renderFocus(){
+    const zen=document.body.classList.contains('zen');
+    const cur = zen ? 'zen' : Object.keys(FOCUS).find(k=>Object.entries(FOCUS[k]).every(([f,v])=>fb[f]===v));
+    document.querySelectorAll('#focusSeg button').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.f===cur)));
+  }
+  $('focusSeg').addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b) return;
+    const f=b.dataset.f;
+    if(f==='zen'){ setZen(true); return; }
+    Object.assign(fb, FOCUS[f]);
+    for(const k in FOCUS[f]) $(FB_IDS[k]).checked=fb[k];
+    if(document.body.classList.contains('zen')) setZen(false); else { save(); renderSheet(); }
+    renderFocus();
+  });
   $('zenBox').addEventListener('change',()=>setZen($('zenBox').checked));
   $('zenOff').onclick=()=>setZen(false);
   $('detail').addEventListener('change',()=>{ save(); renderSheet(); });   // the shown take is read again (notesFor)
@@ -1485,7 +1507,7 @@ function stretch(x, rate){
   function liveDraw(){
     const on=state==='recording' && fb.live && !document.body.classList.contains('zen');
     orb.classList.toggle('liveon', on && live.note!==null);
-    $('liveNote').hidden=$('liveCents').hidden=!(on && live.note!==null);
+    $('liveNote').hidden=!(on && live.note!==null); $('liveCents').hidden=!(on && live.note!==null && fb.tune);
     const tt=target && !target.ear ? target : null;
     $('live').hidden=!(on && tt);
     if(!on) return;
@@ -1705,7 +1727,7 @@ function stretch(x, rate){
   [thr,sil,rep,clefSel,bpm,autoBpm].forEach(el=>el.addEventListener('change',save));
   $('autoSens').addEventListener('change',()=>{ noiseLv=[]; updateLabels(); save(); });
   for(const k in FB_IDS){ const el=$(FB_IDS[k]); el.checked=fb[k];
-    el.addEventListener('change',()=>{ fb[k]=el.checked; save(); renderSheet(); }); }
+    el.addEventListener('change',()=>{ fb[k]=el.checked; save(); renderSheet(); renderFocus(); }); }
 
   function fmt(s){ const m=Math.floor(s/60), r=(s%60); return m+':'+r.toFixed(1).padStart(4,'0'); }
   function updateLabels(){
@@ -2700,7 +2722,7 @@ function stretch(x, rate){
   if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost'))
     navigator.serviceWorker.register('./sw.js').catch(()=>{});
 
-  $('zenBox').checked=document.body.classList.contains('zen');
+  $('zenBox').checked=document.body.classList.contains('zen'); renderFocus();
   loadLinkedExercise();
   setState('idle'); pedalSync(); renderStrings(); renderSheet(); renderMetro(); renderRoutineBar(); restoreTakes();
   requestAnimationFrame(draw);
