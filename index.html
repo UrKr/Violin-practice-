@@ -234,6 +234,8 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           <div class="set"><span></span><label class="check"><input type="checkbox" id="autoBpm" checked> Detect from my playing</label></div>
           <div class="set"><label for="tuning">Tuning</label>
             <select id="tuning"><option value="438">A = 438</option><option value="439">A = 439</option><option value="440" selected>A = 440</option><option value="441">A = 441</option><option value="442">A = 442</option><option value="443">A = 443</option><option value="444">A = 444</option><option value="445">A = 445</option></select></div>
+          <div class="set"><label for="inton">Judge against</label>
+            <select id="inton"><option value="et">Equal temperament</option><option value="pyth">Pythagorean (pure fifths)</option></select></div>
           <div class="set"><label for="droneNote">Drone note</label>
             <select id="droneNote"><option value="auto">Key of the music</option><option value="0">C</option><option value="1">C♯ / D♭</option><option value="2">D</option><option value="3">E♭</option><option value="4">E</option><option value="5">F</option><option value="6">F♯</option><option value="7">G</option><option value="8">A♭</option><option value="9">A</option><option value="10">B♭</option><option value="11">B</option></select></div>
           <div class="set"><label for="clef">Clef</label>
@@ -567,6 +569,11 @@ function guessKey(notes){
   return best;
 }
 function spell(m,key){ const [L,a]=(key&&key.flat?FLAT_SP:SHARP_SP)[m%12]; return {L,a,oct:Math.floor(m/12)-1}; }
+// Pythagorean intonation (pure fifths, as a violin is tuned): each fifth is ~1.955 cents wider than in
+// equal temperament. Counting fifths from A (the tuning note) gives each spelled note's offset:
+// G -3.9, D -2.0, E +2.0, B +3.9, F# +5.9, C -5.9, Bb -9.8 ... F# and Gb differ, so spelling matters.
+const FIFTHS={F:-1,C:0,G:1,D:2,A:3,E:4,B:5};
+function pythOffset(m,key){ const {L,a}=spell(m,key); return 1.955*(FIFTHS[L]+7*a-3); }
 function noteName(m,key){ const {L,a,oct}=spell(m,key); return L+(a>0?'♯':a<0?'♭':'')+oct; }
 
 // `map`, if given, gets one entry per drawn note head (tied pieces included):
@@ -878,10 +885,19 @@ function stretch(x, rate){
   // ---- tuning reference ----
   const tuningSel=$('tuning');
   const A4=()=>+tuningSel.value||440;
+  // the pitch a note should have under the chosen intonation, as cents from equal temperament
+  const refCents=(m,key)=> $('inton').value==='pyth' ? pythOffset(m,key) : 0;
+  const devC=(m,cents,key)=> Math.round(cents-refCents(m,key));
+  // judge a target alignment under the chosen intonation (alignTarget itself uses equal temperament)
+  function judge(r, key){
+    r.items.forEach(it=>{ if(it.played && (it.status==='ok'||it.status==='tune')){ it.cents=devC(it.midi,it.played.cents,key); it.status=Math.abs(it.cents)>=20?'tune':'ok'; } });
+    return r;
+  }
   function notesFor(t){
     if(t.notes && t.A!==A4()){ t.notes=detectNotes(t.buffer.getChannelData(0), t.buffer.sampleRate, A4()); t.A=A4(); t.bpm=guessTempo(t.notes); t.key=guessKey(t.notes); }
   }
   tuningSel.addEventListener('change',()=>{ save(); renderSheet(); refreshDrone(); });
+  $('inton').addEventListener('change',()=>{ save(); renderSheet(); refreshDrone(); });
   ['ladder','ladderStep'].forEach(id=>$(id).addEventListener('change',()=>{ streak=0; save(); }));
 
   // ---- tuner ----
@@ -907,7 +923,8 @@ function stretch(x, rate){
     const needle=$('tNeedle');
     document.querySelectorAll('#tStrings span').forEach(s=>s.className='');
     if(m===null){ $('tNote').innerHTML='–'; $('tCents').textContent='Play a note'; needle.style.transform='translateX(0)'; needle.classList.remove('good'); needle.style.opacity=.3; return; }
-    const r=Math.round(m), c=Math.round((m-r)*100), name=noteName(r);
+    const key = target ? keyOf(target.notes) : (shownTake && shownTake.key) || KEYS[0];
+    const r=Math.round(m), c=Math.round((m-r)*100-refCents(r,key)), name=noteName(r,key);
     const L=name.replace(/-?\d+$/,''), o=name.slice(L.length);
     $('tNote').innerHTML=L+'<small>'+o+'</small>';
     $('tCents').textContent = Math.abs(c)<=4 ? 'In tune' : (c>0?'+':'−')+Math.abs(c)+' cents';
@@ -945,7 +962,7 @@ function stretch(x, rate){
   let streak=0, pendingBpm=null;
   function onAnalyzed(t){
     if(!t.target || !t.notes) return;
-    const r=alignTarget(t.target.notes, t.notes, t.target.hasOct);
+    const r=judge(alignTarget(t.target.notes, t.notes, t.target.hasOct), keyOf(t.target.notes));
     const cnt={ok:0,tune:0,wrong:0,missed:0}; r.items.forEach(it=>cnt[it.status]++);
     const n=r.items.length, clean=(fb.tune ? cnt.ok : cnt.ok+cnt.tune)===n && !r.extra;
     recordProgress(t.target.str,{clean, right:cnt.ok+cnt.tune, total:n, inTune:cnt.ok, bpm:t.metro?t.metro.bpm:0});
@@ -971,7 +988,7 @@ function stretch(x, rate){
   }
   function startDrone(){
     ensureAC(); ac.resume();
-    const m=droneMidi(), f=A4()*Math.pow(2,(m-69)/12), t=ac.currentTime;
+    const m=droneMidi(), f=droneFreq(m), t=ac.currentTime;
     const out=ac.createGain(); out.gain.setValueAtTime(0,t); out.gain.linearRampToValueAtTime(0.12,t+0.4);
     const lp=ac.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=900; lp.connect(out); out.connect(ac.destination);
     const oscs=[[f,'sawtooth',1],[f*1.5,'sawtooth',0.4],[f/2,'sine',0.8]].map(([fr,type,gv])=>{ const o=ac.createOscillator(); o.type=type; o.frequency.value=fr; const g=ac.createGain(); g.gain.value=gv; o.connect(g); g.connect(lp); o.start(); return o; });
@@ -982,18 +999,19 @@ function stretch(x, rate){
     if(drone){ const d=drone, t=ac.currentTime; drone=null; d.out.gain.cancelScheduledValues(t); d.out.gain.setValueAtTime(d.out.gain.value,t); d.out.gain.linearRampToValueAtTime(0,t+0.3); d.oscs.forEach(o=>o.stop(t+0.35)); }
     $('droneBtn').setAttribute('aria-pressed','false'); $('droneBtn').textContent='Drone';
   }
-  function refreshDrone(){ if(drone && (drone.m!==droneMidi() || Math.abs(drone.f-A4()*Math.pow(2,(drone.m-69)/12))>0.01)){ stopDrone(); startDrone(); } }
+  function droneFreq(m){ const k = target ? keyOf(target.notes) : (shownTake && shownTake.key) || KEYS[1]; return A4()*Math.pow(2,(m-69+refCents(m,k)/100)/12); }
+  function refreshDrone(){ if(drone && (drone.m!==droneMidi() || Math.abs(drone.f-droneFreq(drone.m))>0.01)){ stopDrone(); startDrone(); } }
   $('droneBtn').onclick=()=>{ drone ? stopDrone() : startDrone(); };
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
     if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
       if(s.manualBpm) bpm.value=s.manualBpm; if(typeof s.autoBpm==='boolean') autoBpm.checked=s.autoBpm; halfSpeed=!!s.half;
       if(s.fb) for(const k in fb) if(typeof s.fb[k]==='boolean') fb[k]=s.fb[k];
-      if(s.pedal) $('pedal').value=s.pedal; }
+      if(s.pedal) $('pedal').value=s.pedal; if(s.inton) $('inton').value=s.inton; }
   }catch(e){}
   $('bpb').addEventListener('change',()=>{ metro.bpb=+$('bpb').value; renderMetro(); save(); });
   [thr,sil,rep,clefSel,bpm,autoBpm].forEach(el=>el.addEventListener('change',save));
@@ -1309,7 +1327,7 @@ function stretch(x, rate){
   function feedbackHTML(t, lens){
     if(!fb.text || !t.notes || !t.notes.length) return '';
     const key=t.key, lines=[];
-    if(fb.tune) lines.push(...tuneLines(t.notes, key));
+    if(fb.tune) lines.push(...tuneLines(t.notes.map(n=>({midi:n.midi, cents:devC(n.midi,n.cents,key)})), key));
     if(fb.rhythm && lens && t.notes.length>=3){
       const bad=lens.map((L,i)=>({i, r:L.a/L.w, free:L.free})).filter(x=>!x.free && Math.abs(x.r-1)>=0.25);
       if(!bad.length) lines.push('<span class="good">Even note lengths</span>');
@@ -1329,7 +1347,7 @@ function stretch(x, rate){
     const missed=r.items.map((it,i)=>({it,i})).filter(x=>x.it.status==='missed');
     if(missed.length) lines.push('<b>Missed:</b> '+missed.map(x=>'note '+(x.i+1)+' ('+noteName(x.it.midi,key)+')').join(', '));
     if(r.extra) lines.push('<b>'+r.extra+' extra note'+(r.extra>1?'s':'')+'</b> not in the target');
-    if(fb.tune) lines.push(...tuneLines(r.items.filter(it=>it.played).map(it=>({midi:it.midi, cents:it.played.cents})), key));
+    if(fb.tune) lines.push(...tuneLines(r.items.filter(it=>it.played && it.status!=='wrong').map(it=>({midi:it.midi, cents:it.cents})), key));
     return lines.length ? '<div class="feedback">'+lines.slice(0,6).map(l=>'<p>'+l+'</p>').join('')+'</div>' : '';
   }
 
@@ -1364,8 +1382,8 @@ function stretch(x, rate){
     $('sheetKey').textContent = keyLabel(t.key);
     meta.innerHTML=segHTML(t);
     list.innerHTML = feedbackHTML(t, lens) + t.notes.map(n=>{
-      const off=fb.tune && Math.abs(n.cents)>=20, tip=off?(n.cents>0?' sharp':' flat'):'';
-      return `<span class="${off?(n.cents>0?'sharp':'flat'):''}" title="${n.cents>0?'+':''}${n.cents} cents${tip}">${noteName(n.midi,t.key)}${off?(n.cents>0?'↑':'↓'):''}</span>`;
+      const c=devC(n.midi,n.cents,t.key), off=fb.tune && Math.abs(c)>=20, tip=off?(c>0?' sharp':' flat'):'';
+      return `<span class="${off?(c>0?'sharp':'flat'):''}" title="${c>0?'+':''}${c} cents${tip}">${noteName(n.midi,t.key)}${off?(c>0?'↑':'↓'):''}</span>`;
     }).join(' ') + '<div>'+ASTARGET+SHARE+'</div>';
     hl={take:t, times:t.notes.map((n,i)=>[n.t0,n.t0+lens[i].a]), lens:fb.rhythm?lens:null, bars:[], els:noteGroups(paper,map), spans:[...list.querySelectorAll(':scope > span')], cur:-1};
     makeShareImage();
@@ -1421,8 +1439,9 @@ function stretch(x, rate){
     const sr=44100, beat=60/metro.bpm, len=Math.ceil((notes.length*beat+0.6)*sr);
     const OC=window.OfflineAudioContext||window.webkitOfflineAudioContext, oc=new OC(1,len,sr);
     const out=oc.createGain(); out.gain.value=0.5; out.connect(oc.destination);
+    const hk=keyOf(notes);
     notes.forEach((m,i)=>{
-      const f=A4()*Math.pow(2,(m-69)/12), t=i*beat, d=beat*0.95;
+      const f=A4()*Math.pow(2,(m-69+refCents(m,hk)/100)/12), t=i*beat, d=beat*0.95;
       const o1=oc.createOscillator(), o2=oc.createOscillator(), lp=oc.createBiquadFilter(), g=oc.createGain();
       const lfo=oc.createOscillator(), lg=oc.createGain();
       o1.type='sawtooth'; o2.type='triangle'; o1.frequency.value=f; o2.frequency.value=f*1.002;
@@ -1455,7 +1474,7 @@ function stretch(x, rate){
   function renderResult(t){
     $('firstnote').hidden=true;
     $('sheetMeta').innerHTML=segHTML(t);
-    const tt=t.target, r=alignTarget(tt.notes, t.notes, tt.hasOct);
+    const tt=t.target, r=judge(alignTarget(tt.notes, t.notes, tt.hasOct), keyOf(tt.notes.map(m=>m)));
     if(!fb.tune) r.items.forEach(it=>{ if(it.status==='tune') it.status='ok'; });
     const key=keyOf(r.items.map(x=>x.midi));
     const ev=r.items.map((it,i)=>({midi:it.midi, s:i*4, e:i*4+4,
@@ -1484,7 +1503,8 @@ function stretch(x, rate){
     const H=220, PL=38, PT=10, PB=12, W=Math.max(wrap.clientWidth, Math.round(dur*90));
     cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
     const g=cv.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
-    const r = t.target ? alignTarget(t.target.notes, t.notes, t.target.hasOct) : null;
+    const r = t.target ? judge(alignTarget(t.target.notes, t.notes, t.target.hasOct), keyOf(t.target.notes)) : null;
+    const rc=m=>refCents(m,t.key)/100;   // where each note should sit under the chosen intonation
     const ms=t.notes.map(n=>n.midi).concat(r?r.items.map(i=>i.midi):[]);
     let lo=Math.min(...ms)-1.5, hi=Math.max(...ms)+1.5; if(hi-lo<6){ const c=(hi+lo)/2; lo=c-3; hi=c+3; }
     const y=m=>PT+(hi-m)/(hi-lo)*(H-PT-PB), x=s=>PL+s/dur*(W-PL-8);
@@ -1501,7 +1521,7 @@ function stretch(x, rate){
     g.globalAlpha=1;
     // where the target notes were, dashed, in the result colour
     if(r){ g.setLineDash([4,4]); g.lineWidth=2;
-      r.items.forEach(it=>{ if(!it.played) return; g.strokeStyle={ok:C.ok,tune:C.tune,wrong:C.bad}[it.status]; g.beginPath(); g.moveTo(x(it.played.t0),y(it.midi)); g.lineTo(x(it.played.t1),y(it.midi)); g.stroke(); });
+      r.items.forEach(it=>{ if(!it.played) return; g.strokeStyle={ok:C.ok,tune:C.tune,wrong:C.bad}[it.status]; g.beginPath(); const ty=y(it.midi+rc(it.midi)); g.moveTo(x(it.played.t0),ty); g.lineTo(x(it.played.t1),ty); g.stroke(); });
       g.setLineDash([]); }
     // the pitch line, coloured by how close it is to the nearest note
     g.save(); g.beginPath(); g.rect(PL,PT-4,W-PL,H-PT-PB+8); g.clip();
@@ -1510,12 +1530,12 @@ function stretch(x, rate){
     const devs=[];
     for(let f=1; f<p.length; f++){
       const a=p[f-1], b=p[f]; if(isNaN(a)||isNaN(b)||Math.abs(a-b)>0.7) continue;
-      const dev=Math.abs(b-Math.round(b))*100;
+      const dev=Math.abs(b-Math.round(b)-rc(Math.round(b)))*100;
       g.strokeStyle= dev<10?C.ok : dev<25?C.tune : C.bad;
       g.beginPath(); g.moveTo(x(tm(f-1)),y(a)); g.lineTo(x(tm(f)),y(b)); g.stroke();
     }
     g.restore();
-    t.notes.forEach(n=>{ for(let f=0;f<p.length;f++){ const s=tm(f); if(s<n.t0||s>n.t1||isNaN(p[f])) continue; const d=p[f]-n.midi; if(Math.abs(d)<0.6) devs.push(d*100); } });
+    t.notes.forEach(n=>{ for(let f=0;f<p.length;f++){ const s=tm(f); if(s<n.t0||s>n.t1||isNaN(p[f])) continue; const d=p[f]-n.midi; if(Math.abs(d)<0.6) devs.push((d-rc(n.midi))*100); } });
     const mean=devs.length?devs.reduce((a,b)=>a+b,0)/devs.length:0, mabs=devs.length?devs.reduce((a,b)=>a+Math.abs(b),0)/devs.length:0;
     const lean = mean>5?', leaning sharp' : mean<-5?', leaning flat' : '';
     const dot=(c,txt)=>'<span><i style="background:'+c+'"></i>'+txt+'</span>';
@@ -1603,13 +1623,13 @@ function stretch(x, rate){
   const blobToB64=b=>new Promise((ok,bad)=>{ const r=new FileReader(); r.onload=()=>ok(String(r.result).split(',')[1]); r.onerror=bad; r.readAsDataURL(b); });
   async function exportDebug(t, text){
     let settings=null; try{ settings=JSON.parse(localStorage.getItem('pib-settings')||'null'); }catch(e){}
-    const key=t.key, shown=shownTake===t, r=t.target && t.notes ? alignTarget(t.target.notes, t.notes, t.target.hasOct) : null;
+    const key=t.key, shown=shownTake===t, r=t.target && t.notes ? judge(alignTarget(t.target.notes, t.notes, t.target.hasOct), keyOf(t.target.notes)) : null;
     const lens = shown && hl && hl.lens ? hl.lens : null;
     const data={
       format:'play-it-back-debug', version:1, exported:new Date().toISOString(),
       report:text,
       page:location.href, pageModified:document.lastModified, userAgent:navigator.userAgent,
-      settings, view:{sheetView, halfSpeed, firstNote:firstVal, clef:clefSel.value, autoBpm:autoBpm.checked, manualBpm:+bpm.value, metroOn:metro.on, feedback:{...fb}},
+      settings, view:{sheetView, halfSpeed, firstNote:firstVal, clef:clefSel.value, autoBpm:autoBpm.checked, manualBpm:+bpm.value, metroOn:metro.on, feedback:{...fb}, intonation:$('inton').value},
       take:{id:t.id, dur:t.dur, sampleRate:t.buffer.sampleRate, A4:t.A||A4(), bpm:t.bpm, key:key?key.name:null,
         metro:t.metro, target:t.target, preroll:PREROLL, tail:TAIL},
       heard:(t.notes||[]).map((n,i)=>({n:i+1, name:noteName(n.midi,key), midi:n.midi, t0:+n.t0.toFixed(3), t1:+n.t1.toFixed(3), cents:n.cents,
