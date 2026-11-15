@@ -302,6 +302,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           <section class="sgrp" id="grpListening" data-dock>
           <div class="sgroup">Listening</div>
           <div class="set"><label for="thr">Sensitivity</label><input type="range" id="thr" min="0.15" max="0.9" step="0.01" value="0.45"><output id="thrVal"></output></div>
+          <div class="set"><span></span><label class="check"><input type="checkbox" id="autoSens" checked> Set from the room's noise</label></div>
           <div class="set"><label for="sil">Stop after</label><input type="range" id="sil" min="0.5" max="5" step="0.1" value="1.5"><output id="silVal"></output></div>
           <div class="set"><label for="rep">Repeat</label><input type="range" id="rep" min="0" max="4" step="1" value="1"><output id="repVal"></output></div>
           </section>
@@ -981,7 +982,7 @@ function stretch(x, rate){
 
   let ac=null, stream=null, proc=null, src=null, wakeLock=null, active=false;
   let state='idle';
-  let level=0, history=[];
+  let level=0, history=[], noiseLv=[], noiseLabelTick=0;
   let preroll=[], prerollLen=0, chunks=[], silentSince=null, recStart=0;
   let takes=[], takeCounter=0, currentSrc=null, shownTake=null, recAudioStart=0;
   // what playback is doing right now ({take, when, offset, rate}), and what the sheet shows
@@ -1406,22 +1407,25 @@ function stretch(x, rate){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target&&!target.ear?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target&&!target.ear?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
     if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
       if(s.manualBpm) bpm.value=s.manualBpm; if(typeof s.autoBpm==='boolean') autoBpm.checked=s.autoBpm; halfSpeed=!!s.half;
       if(s.fb) for(const k in fb) if(typeof s.fb[k]==='boolean') fb[k]=s.fb[k];
-      if(s.pedal) $('pedal').value=s.pedal; if(s.inton) $('inton').value=s.inton; if(s.instr) $('instr').value=s.instr; if(s.beat) $('beatMode').value=s.beat; }
+      if(s.pedal) $('pedal').value=s.pedal; if(s.inton) $('inton').value=s.inton; if(s.instr) $('instr').value=s.instr; if(s.beat) $('beatMode').value=s.beat; if(typeof s.autoSens==='boolean') $('autoSens').checked=s.autoSens; }
   }catch(e){}
   $('bpb').addEventListener('change',()=>{ metro.bpb=+$('bpb').value; renderMetro(); save(); });
   [thr,sil,rep,clefSel,bpm,autoBpm].forEach(el=>el.addEventListener('change',save));
+  $('autoSens').addEventListener('change',()=>{ noiseLv=[]; updateLabels(); save(); });
   for(const k in FB_IDS){ const el=$(FB_IDS[k]); el.checked=fb[k];
     el.addEventListener('change',()=>{ fb[k]=el.checked; save(); renderSheet(); }); }
 
   function fmt(s){ const m=Math.floor(s/60), r=(s%60); return m+':'+r.toFixed(1).padStart(4,'0'); }
   function updateLabels(){
-    const t=+thr.value; $('thrVal').textContent = t<0.35?'High':t<0.6?'Medium':'Low';
+    const t=+thr.value, autoS=$('autoSens').checked; $('thrVal').textContent = (autoS?'Auto ':'')+(t<0.35?'high':t<0.6?'medium':'low');
+    if(!autoS) $('thrVal').textContent=$('thrVal').textContent.replace(/^./,c=>c.toUpperCase());
+    thr.disabled=autoS;
     const sb=Math.max(1,Math.round(+sil.value));
     $('silVal').textContent = (typeof metro!=='undefined' && metro.on) ? sb+(sb>1?' beats':' beat') : (+sil.value).toFixed(1)+' s';
     $('repVal').textContent = rep.value==0 ? 'Off' : '×'+rep.value;
@@ -1495,12 +1499,13 @@ function stretch(x, rate){
     }
     active=true;
     try{ wakeLock = await navigator.wakeLock?.request('screen'); }catch(e){}
-    preroll=[]; prerollLen=0;
+    preroll=[]; prerollLen=0; noiseLv=[];
     setState('listening');
   }
 
   function stop(){
     active=false;
+    if($('autoSens').checked) save();   // remember the room's level for next time
     stopPlayback();
     if(state==='recording') finishTake();
     micOff();
@@ -1519,13 +1524,24 @@ function stretch(x, rate){
     const rms=Math.sqrt(sum/buf.length);
     const db = 20*Math.log10(rms+1e-9);
     level = Math.max(0, Math.min(1, (db+60)/60));   // -60 dB..0 dB → 0..1
-    const now = ac.currentTime, T=+thr.value;
     if(tunerOpen){ tunerFeed(buf); return; }
+    // automatic sensitivity: while listening, the room's noise (the quiet 20% of the last ~6 s) sets
+    // the trigger 12 dB above it. Sound that starts a take is above the trigger, so it barely counts.
+    if(state==='listening' && $('autoSens').checked){
+      noiseLv.push(level); if(noiseLv.length>140) noiseLv.shift();
+      if(noiseLv.length>=12){
+        const srt=noiseLv.slice().sort((a,b)=>a-b), floor=srt[Math.floor(srt.length*0.2)];
+        const T=Math.max(0.22, Math.min(0.9, floor+0.2));
+        if(Math.abs(T-thr.value)>0.01){ thr.value=T.toFixed(2); if(++noiseLabelTick%10===0) updateLabels(); }
+      }
+    }
+    const now = ac.currentTime, T=+thr.value;
 
     if(state==='listening'){
       preroll.push(buf); prerollLen+=buf.length;
       while(prerollLen - preroll[0].length > PREROLL*ac.sampleRate){ prerollLen-=preroll.shift().length; }
-      if(level>=T){
+      const measuring = $('autoSens').checked && noiseLv.length<12;   // first ~0.5 s: measuring the room
+      if(level>=T && !measuring){
         chunks = preroll.slice(); preroll=[]; prerollLen=0;
         recAudioStart = now - prerollLen0()/ac.sampleRate;
         silentSince=null; recStart=now; setState('recording');
