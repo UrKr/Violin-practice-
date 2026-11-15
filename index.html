@@ -257,6 +257,21 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 .metro:not(.on) .step{visibility:hidden}
 .toast{background:var(--ink); color:var(--bg); border-radius:12px; padding:10px 14px; margin-bottom:10px; font-weight:600; font-size:.95rem; text-align:center}
 .prog{margin:14px 4px 2px}
+/* practice panel */
+.stats .nums{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px}
+.stats .num{background:var(--bg); border-radius:12px; padding:10px 12px}
+.stats .num b{display:block; font-size:1.25rem; font-weight:650; letter-spacing:-.02em; font-variant-numeric:tabular-nums}
+.stats .num span{color:var(--muted); font-size:.75rem}
+.stats .prog{margin:0 0 14px}
+.stats .prog .col span{background:var(--play)}
+.tend{display:grid; grid-template-columns:3.4em 1fr 4.8em; align-items:center; gap:4px 10px; font-size:.86rem; font-variant-numeric:tabular-nums}
+.tend .nm{font-weight:600}
+.tend .tr{position:relative; height:8px; border-radius:4px; background:var(--bg)}
+.tend .tr::before{content:""; position:absolute; left:50%; top:-3px; bottom:-3px; width:1px; background:var(--line2)}
+.tend .tr i{position:absolute; top:0; bottom:0; border-radius:4px}
+.tend .v{text-align:right; color:var(--muted); white-space:nowrap}
+.stats .sum{font-size:.88rem; margin:0 0 10px}
+.stats .empty{color:var(--muted); font-size:.88rem; padding:4px 0 10px}
 .prog .cap{font-size:.85rem; color:var(--muted); margin-bottom:6px}
 .prog .bars{display:flex; gap:4px}
 .prog .bar{flex:1; display:flex; flex-direction:column; align-items:center}
@@ -275,6 +290,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
     <div class="bar">
       <h1><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 12h1.5M8 8v8M11.5 5v14M15 9v6M18.5 11v2"/></svg></span>Play it back</h1>
       <div class="right">
+      <button class="iconbtn" id="statsBtn" aria-label="Practice log and tendencies" aria-expanded="false"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V12M10 20V6M15 20v-9M20 20V4"/></svg></button>
       <button class="iconbtn" id="tunerBtn" aria-label="Tuner" aria-expanded="false"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 3v8a3 3 0 0 0 6 0V3M12 14v7M9 21h6"/></svg></button>
       <button class="iconbtn" id="targetBtn" aria-label="Notes to play" aria-expanded="false"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg></button>
       <details class="settings" id="settings">
@@ -346,6 +362,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           <div class="tnote" id="tNote2">Strings in pure fifths from A = 440</div>
         </div>
       </div>
+      <div class="panel tpanel" id="statsPanel" hidden></div>
       <div class="panel tpanel" id="targetPanel" hidden>
         <label for="targetIn">Notes to play</label>
         <input id="targetIn" placeholder="G3 A B C4 D E F# G" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
@@ -1118,7 +1135,7 @@ function stretch(x, rate){
 
   function openTarget(open){
     $('targetPanel').hidden=!open; $('targetBtn').setAttribute('aria-expanded',open);
-    if(open){ $('settings').open=false; if(tunerOpen) openTuner(false); $('targetIn').value=target&&!target.ear?target.str:''; renderSaved(); }
+    if(open){ $('settings').open=false; if(tunerOpen) openTuner(false); if(statsOpen) openStats(false); $('targetIn').value=target&&!target.ear?target.str:''; renderSaved(); }
   }
   $('targetBtn').onclick=e=>{ e.stopPropagation(); openTarget($('targetPanel').hidden); };
   const useTarget=()=>{ if(setTarget($('targetIn').value)){ streak=0; setTimeout(refreshDrone,0); shownTake=null; sheetView='result'; openTarget(false); save(); renderTakes(); renderSheet(); } };
@@ -1175,7 +1192,7 @@ function stretch(x, rate){
   async function openTuner(open){
     tunerOpen=open; $('tunerPanel').hidden=!open; $('tunerBtn').setAttribute('aria-expanded',open); $('tunerBtn').classList.toggle('on',open);
     if(open){
-      openTarget(false); $('settings').open=false; tHist=[]; showTune(null);
+      openTarget(false); $('settings').open=false; if(statsOpen) openStats(false); tHist=[]; showTune(null);
       $('tNote2').textContent='Strings in pure fifths from A = '+A4();
       if(!active){ tunerStartedMic=true; await start(); if(!active){ openTuner(false); } }
     } else if(tunerStartedMic){ tunerStartedMic=false; if(active) stop(); }
@@ -1230,6 +1247,69 @@ function stretch(x, rate){
     const txt = d ? 'Today: '+d.takes+(d.takes>1?' takes':' take')+', '+d.clean+' clean'+(d.bpm?', up to '+d.bpm+' bpm':'') : '';
     return '<div class="prog"><div class="cap">Notes right and in tune, last 2 weeks</div><div class="bars">'+bars+'</div>'+(txt?'<div class="ptxt">'+txt+'</div>':'')+'</div>';
   }
+
+  // ---- practice log: seconds practised per day (while listening, page visible) ----
+  const loadJ=(k,d)=>{ try{ return JSON.parse(localStorage.getItem(k)||'null')||d; }catch(e){ return d; } };
+  const saveJ=(k,v)=>{ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} };
+  const dayKey=dt=>dt.toLocaleDateString('en-CA');
+  let ptime=loadJ('pib-time',{});
+  setInterval(()=>{ if(active && document.visibilityState==='visible'){ const k=today(); ptime[k]=(ptime[k]||0)+5; saveJ('pib-time',ptime); } },5000);
+  // ---- intonation per note over time: raw cents from equal temperament, judged when shown ----
+  let tend=loadJ('pib-tend',{});
+  function recordTendency(t){
+    if(!t.notes || !t.notes.length) return;
+    const k=today(), d=tend[k]||(tend[k]={});
+    t.notes.forEach(n=>{ if(n.t1-n.t0<0.15 || Math.abs(n.cents)>=50) return;
+      const name=noteName(n.midi,t.key), e=d[name]||(d[name]=[0,0,n.midi]); e[0]+=n.cents; e[1]++; });
+    const cut=new Date(); cut.setDate(cut.getDate()-60);   // keep two months
+    for(const day in tend) if(day<dayKey(cut)) delete tend[day];
+    saveJ('pib-tend',tend);
+  }
+  // expected offset of a spelled note (F♯4) under the chosen intonation
+  function refByName(name){
+    if($('inton').value!=='pyth') return 0;
+    const L=name[0], a=(name.match(/♯/g)||[]).length-(name.match(/♭/g)||[]).length;
+    return 1.955*(FIFTHS[L]+7*a-3);
+  }
+  const fmtMin=sec=>{ const m=Math.round(sec/60); return m<60 ? m+' min' : Math.floor(m/60)+' h '+String(m%60).padStart(2,'0'); };
+  function statsHTML(){
+    const days=[]; for(let i=13;i>=0;i--){ const dt=new Date(); dt.setDate(dt.getDate()-i); days.push(dt); }
+    const sec=dt=>ptime[dayKey(dt)]||0;
+    const todaySec=sec(new Date()), week=days.slice(-7).reduce((a,dt)=>a+sec(dt),0);
+    let streakDays=0; for(let i=0;;i++){ const dt=new Date(); dt.setDate(dt.getDate()-i); if(sec(dt)>=60) streakDays++; else if(i>0) break; else continue; if(i>400) break; }
+    const max=Math.max(60,...days.map(sec));
+    const bars=days.map(dt=>{ const v=sec(dt), L=dt.toLocaleDateString(undefined,{weekday:'narrow'});
+      return v<30 ? '<div class="bar none"><div class="col"><span></span></div><em>'+L+'</em></div>'
+        : '<div class="bar" title="'+fmtMin(v)+'"><div class="col"><span style="height:'+Math.max(6,Math.round(100*v/max))+'%"></span></div><em>'+L+'</em></div>'; }).join('');
+    let html='<div class="stats"><label>Practice</label><div class="nums">'
+      +'<div class="num"><b>'+fmtMin(todaySec)+'</b><span>today</span></div>'
+      +'<div class="num"><b>'+fmtMin(week)+'</b><span>last 7 days</span></div>'
+      +'<div class="num"><b>'+streakDays+'</b><span>day'+(streakDays===1?'':'s')+' in a row</span></div></div>'
+      +'<div class="prog"><div class="bars">'+bars+'</div></div>';
+    // tendencies, last 14 days
+    const agg={};
+    days.forEach(dt=>{ const d=tend[dayKey(dt)]; if(!d) return; for(const nm in d){ const a=agg[nm]||(agg[nm]=[0,0,d[nm][2]]); a[0]+=d[nm][0]; a[1]+=d[nm][1]; } });
+    const rows=Object.entries(agg).filter(([,a])=>a[1]>=5).map(([nm,a])=>({nm, midi:a[2], n:a[1], c:Math.round(a[0]/a[1]-refByName(nm))}))
+      .sort((x,y)=>Math.abs(y.c)-Math.abs(x.c)).slice(0,10);
+    html+='<label>Intonation, last 2 weeks <span class="sheet-meta">('+($('inton').value==='pyth'?'Pythagorean':'equal temperament')+')</span></label>';
+    if(!rows.length) html+='<div class="empty">Play a few takes: notes you play 5 times or more show up here, with how sharp or flat you tend to play them.</div>';
+    else {
+      const sharp=rows.filter(r=>r.c>=8).map(r=>r.nm), flat=rows.filter(r=>r.c<=-8).map(r=>r.nm);
+      const list=a=>a.slice(0,3).join(a.length>1?', ':'').replace(/, ([^,]*)$/,' and $1');
+      const sum = sharp.length||flat.length ? 'You tend to play '+[sharp.length?list(sharp)+' sharp':'', flat.length?list(flat)+' flat':''].filter(Boolean).join(' and ')+'.' : 'No clear tendencies: nicely centred.';
+      html+='<p class="sum">'+sum+'</p><div class="tend">'+rows.sort((a,b)=>a.midi-b.midi).map(r=>{
+        const c=Math.max(-30,Math.min(30,r.c)), w=Math.abs(c)/60*100, col=Math.abs(r.c)<8?'var(--ok)':Math.abs(r.c)<15?'var(--listen)':'var(--rec)';
+        return '<span class="nm">'+r.nm+'</span><span class="tr"><i style="background:'+col+';'+(c>=0?'left:50%':'right:50%')+';width:'+w+'%"></i></span><span class="v">'+(r.c>=0?'+':'−')+Math.abs(Math.round(r.c))+' <small>×'+r.n+'</small></span>';
+      }).join('')+'</div>';
+    }
+    return html+'</div>';
+  }
+  let statsOpen=false;
+  function openStats(open){
+    statsOpen=open; $('statsPanel').hidden=!open; $('statsBtn').setAttribute('aria-expanded',open);
+    if(open){ openTarget(false); $('settings').open=false; if(tunerOpen) openTuner(false); $('statsPanel').innerHTML=statsHTML(); }
+  }
+  $('statsBtn').onclick=e=>{ e.stopPropagation(); openStats(!statsOpen); };
 
   // ---- after each take: score it, log it, climb the tempo ladder ----
   let streak=0, pendingBpm=null;
@@ -1449,7 +1529,7 @@ function stretch(x, rate){
 
     if(auto.checked && active) playTake(take, +rep.value);
     else setState(active?'listening':'idle');
-    setTimeout(()=>{ take.A=A4(); take.notes=detectNotes(data,sr,A4()); take.bpm=guessTempo(take.notes); take.key=guessKey(take.notes); onAnalyzed(take); if(shownTake===take) renderSheet(); },60);
+    setTimeout(()=>{ take.A=A4(); take.notes=detectNotes(data,sr,A4()); take.bpm=guessTempo(take.notes); take.key=guessKey(take.notes); recordTendency(take); onAnalyzed(take); if(shownTake===take) renderSheet(); },60);
   }
 
   async function playTake(take, times){
@@ -1561,8 +1641,9 @@ function stretch(x, rate){
   $('offBtn').addEventListener('click',()=>{ if(tunerOpen) openTuner(false); stop(); });
   document.addEventListener('click',e=>{ const d=$('settings'); if(d.open && !d.contains(e.target)) d.open=false;
     const tp=$('targetPanel'); if(!tp.hidden && !tp.contains(e.target) && e.target!==$('targetBtn')) openTarget(false);
-    const up=$('tunerPanel'); if(tunerOpen && !up.contains(e.target) && !$('tunerBtn').contains(e.target)) openTuner(false); });
-  $('settings').addEventListener('toggle',()=>{ if($('settings').open){ openTarget(false); if(tunerOpen) openTuner(false); } });
+    const up=$('tunerPanel'); if(tunerOpen && !up.contains(e.target) && !$('tunerBtn').contains(e.target)) openTuner(false);
+    if(statsOpen && !$('statsPanel').contains(e.target) && !$('statsBtn').contains(e.target)) openStats(false); });
+  $('settings').addEventListener('toggle',()=>{ if($('settings').open){ openTarget(false); if(tunerOpen) openTuner(false); if(statsOpen) openStats(false); } });
   $('clear').onclick=()=>{ takes=[]; shownTake=null; forgetAllTakes(); renderTakes(); renderSheet(); };
   [bpm,autoBpm,clefSel].forEach(el=>el.addEventListener('input',()=>{ updateLabels(); renderSheet(); }));
   autoBpm.addEventListener('change',()=>{ updateLabels(); renderSheet(); });
