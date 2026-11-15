@@ -47,6 +47,11 @@ under the big button (`placeSettings()`), Tempo and Controls stay in the menu.
 ## Important details
 - **iPhone:** while the mic is open, iOS routes audio to the earpiece. The app closes the mic before
   playback and reopens it afterwards (`micOff` / `micOn`, `navigator.audioSession`). Keep this.
+  Exception: Settings > Listening > 'Stop it when I start playing' keeps the mic open during playback to
+  hear the player (`makeBarge`: mic pitch vs the playback buffer 0-0.3 s back, octaves equal, or 9 dB over
+  the echo level measured in the first 0.8 s; ~0.25 s in a row). On by default except on iPhone, where it
+  needs headphones. Offline: the speaker echo alone (also reverberant, full volume) never triggers it;
+  starting to play is caught in ~0.3 s.
 - Everything runs on the device. Recordings are never uploaded. Settings, saved exercises and
   progress live in localStorage; the last 10 takes (16-bit audio + metadata) live in IndexedDB (`pib` / `takes`)
   and are restored, and their notes re-detected, when the page opens.

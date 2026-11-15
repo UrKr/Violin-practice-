@@ -379,6 +379,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           <div class="sgroup">Listening</div>
           <div class="set"><label for="thr">Sensitivity</label><input type="range" id="thr" min="0.15" max="0.9" step="0.01" value="0.45"><output id="thrVal"></output></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="autoSens" checked> Set from the room's noise</label></div>
+          <div class="set"><span>Playback</span><label class="check"><input type="checkbox" id="bargeIn" checked> Stop it when I start playing <span id="bargeNote"></span></label></div>
           <div class="set"><label for="sil">Stop after</label><input type="range" id="sil" min="0.5" max="5" step="0.1" value="1.5"><output id="silVal"></output></div>
           <div class="set"><label for="rep">Repeat</label><input type="range" id="rep" min="0" max="4" step="1" value="1"><output id="repVal"></output></div>
           </section>
@@ -815,6 +816,31 @@ function soundOf(notes){
 }
 
 // One quick pitch reading for the live tuner. Returns a fractional MIDI number or null.
+// Stop playback by playing: during playback the mic hears the speaker too. Is this the player? The mic's
+// pitch is compared with what was being played a moment ago (0-0.3 s back, for the speaker's delay),
+// octaves counting as the same; and its loudness with the speaker's echo level, measured in the first
+// 0.8 s of the playback. Different pitch (above the trigger), or 9 dB louder than the echo, for ~0.25 s
+// in a row = the player.
+function makeBarge(){
+  const mic=new Float32Array(4096); let score=0, offs=[], echoOff=null;
+  const rmsDb=a=>{ let e=0; for(let i=0;i<a.length;i++) e+=a[i]*a[i]; return 20*Math.log10(Math.sqrt(e/a.length)+1e-9); };
+  const pcClose=(a,b)=>{ const d=((a-b)%12+12)%12; return Math.min(d,12-d)<0.7; };   // same note, any octave
+  return { feed(buf, sr, pb, bt, elapsed, level, T, A4){
+    mic.copyWithin(0,buf.length); mic.set(buf, mic.length-buf.length);
+    const pbd=pb.getChannelData(0), psr=pb.sampleRate, len=Math.round(4096*psr/sr);
+    const segs=[0,0.15,0.3].map(dt=>{ const i=Math.round((bt-dt)*psr)-len; return i>=0 && i+len<=pbd.length ? pbd.subarray(i,i+len) : null; });
+    const pbDb=Math.max(-120, ...segs.map(x=>x?rmsDb(x):-120)), micDb=rmsDb(buf);
+    if(elapsed<0.8){ if(pbDb>-45) offs.push(micDb-pbDb); return false; }
+    if(echoOff===null && offs.length>=4){ offs.sort((a,b)=>a-b); echoOff=offs[offs.length>>1]; }
+    if(level<T){ score=Math.max(0,score-1); return false; }
+    const loud = echoOff!==null && micDb>pbDb+echoOff+9;
+    const mp=livePitch(mic, sr, A4), pps=segs.map(x=>x && pbDb>-60 ? livePitch(x, psr, A4) : null);
+    const echoLike = mp!==null && pps.some(p=>p!==null && pcClose(mp,p));
+    const player = (mp!==null && !echoLike) || loud;
+    score = player ? score+1 : Math.max(0,score-1);
+    return score>=6;
+  } };
+}
 function livePitch(buf, sr, A4){
   const factor=Math.max(1,Math.round(sr/11025)), fs=sr/factor, n=Math.floor(buf.length/factor), x=new Float32Array(n);
   let e=0; for(let i=0;i<n;i++){ let s=0; for(let k=0;k<factor;k++) s+=buf[i*factor+k]; x[i]=s/factor; e+=x[i]*x[i]; }
@@ -1178,7 +1204,7 @@ function stretch(x, rate){
   let takes=[], takeCounter=0, currentSrc=null, shownTake=null, recAudioStart=0;
   // what playback is doing right now ({take, when, offset, rate}), and what the sheet shows
   // (so the note being played can be lit up): see updatePlayhead()
-  let playing=null, hl=null, lastAbc='', compareId=null;
+  let playing=null, hl=null, lastAbc='', compareId=null, barge=null;
   // what feedback to give (Settings → Feedback); saved with the other settings
   const fb={text:true, tune:true, rhythm:true, follow:true, live:true};
   const FB_IDS={text:'fbText', tune:'fbTune', rhythm:'fbRhythm', follow:'fbFollow', live:'fbLive'};
@@ -1786,14 +1812,15 @@ function stretch(x, rate){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target&&!target.ear?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen')})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target&&!target.ear?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
     if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
       if(s.manualBpm) bpm.value=s.manualBpm; if(typeof s.autoBpm==='boolean') autoBpm.checked=s.autoBpm; halfSpeed=!!s.half;
       if(s.fb) for(const k in fb) if(typeof s.fb[k]==='boolean') fb[k]=s.fb[k];
       if(s.pedal) $('pedal').value=s.pedal; if(s.inton) $('inton').value=s.inton; if(s.instr) $('instr').value=s.instr; if(s.beat) $('beatMode').value=s.beat; if(typeof s.autoSens==='boolean') $('autoSens').checked=s.autoSens;
-      if(s.detail) $('detail').value=s.detail; if(s.zen) document.body.classList.add('zen'); }
+      if(s.detail) $('detail').value=s.detail; if(s.zen) document.body.classList.add('zen');
+      if(typeof s.barge==='boolean') $('bargeIn').checked=s.barge; else if(/iP(hone|ad|od)/.test(navigator.userAgent)) $('bargeIn').checked=false; }
   }catch(e){}
   $('bpb').addEventListener('change',()=>{ metro.bpb=+$('bpb').value; renderMetro(); save(); });
   [thr,sil,rep,clefSel,bpm,autoBpm].forEach(el=>el.addEventListener('change',save));
@@ -1894,6 +1921,11 @@ function stretch(x, rate){
     level=0; setState('idle');
   }
 
+  function beginTake(now){
+    chunks = preroll.slice(); preroll=[]; prerollLen=0;
+    recAudioStart = now - prerollLen0()/ac.sampleRate;
+    silentSince=null; recStart=now; liveReset(); setState('recording');
+  }
   function prerollLen0(){ return chunks.reduce((a,c)=>a+c.length,0); }
   function silenceLimit(){ return metro.on ? Math.max(1,Math.round(+sil.value))*beatLen() : +sil.value; }
 
@@ -1921,10 +1953,13 @@ function stretch(x, rate){
       preroll.push(buf); prerollLen+=buf.length;
       while(prerollLen - preroll[0].length > PREROLL*ac.sampleRate){ prerollLen-=preroll.shift().length; }
       const measuring = $('autoSens').checked && noiseLv.length<12;   // first ~0.5 s: measuring the room
-      if(level>=T && !measuring){
-        chunks = preroll.slice(); preroll=[]; prerollLen=0;
-        recAudioStart = now - prerollLen0()/ac.sampleRate;
-        silentSince=null; recStart=now; liveReset(); setState('recording');
+      if(level>=T && !measuring) beginTake(now);
+    } else if(state==='playing' && active && stream && $('bargeIn').checked && playing && playing.buf && barge){
+      preroll.push(buf); prerollLen+=buf.length;
+      while(prerollLen - preroll[0].length > PREROLL*ac.sampleRate){ prerollLen-=preroll.shift().length; }
+      const heard=now-(ac.outputLatency||ac.baseLatency||0), bt=playing.offset+(heard-playing.when);
+      if(bt>0 && barge.feed(buf, ac.sampleRate, playing.buf, bt, heard-playing.when, level, T, A4())){
+        stopPlayback(); applyPending(); beginTake(now);
       }
     } else if(state==='recording'){
       chunks.push(buf);
@@ -1980,7 +2015,8 @@ function stretch(x, rate){
   async function playTake(take, times){
     stopPlayback();
     setState('playing');
-    if(stream){ micOff(); await new Promise(r=>setTimeout(r,180)); }   // let the phone switch to the speaker
+    // (with 'stop it when I start playing' the mic stays open to listen; on iPhone that needs headphones)
+    if(stream && !$('bargeIn').checked){ micOff(); await new Promise(r=>setTimeout(r,180)); }   // let the phone switch to the speaker
     if(ac.state==='suspended') await ac.resume();
     if(state!=='playing') return;
     let left=times;
@@ -2000,7 +2036,7 @@ function stretch(x, rate){
         let k=Math.ceil((now+0.2-delta-metro.t0)/bar), nextBar=metro.t0+k*bar;
         if(delta>=0){ when=nextBar+delta; s.start(when); } else { when=nextBar; offset=-delta; s.start(when,offset); }
       } else s.start();
-      playing={take, when, offset, rate};
+      playing={take, when, offset, rate, buf}; barge=makeBarge();
       s.onended=()=>{
         if(currentSrc!==s) return;
         left--;
@@ -2866,6 +2902,7 @@ function stretch(x, rate){
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone===true;
   const iOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
   if(iOS && !standalone) $('iosHint').hidden=false;
+  if(iOS) $('bargeNote').textContent='(iPhone: with headphones)';
   if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost'))
     navigator.serviceWorker.register('./sw.js').catch(()=>{});
 
