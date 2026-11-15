@@ -201,6 +201,12 @@ details.settings[open] > summary{box-shadow:var(--shadow)}
 .routine .nm b{font-weight:600}
 .routine button{height:34px; min-width:34px; padding:0 10px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink); font-weight:600}
 .routine button.next{background:var(--play); border-color:var(--play); color:#fff}
+/* zen mode: no notes, no feedback - play and listen */
+.zenbar{display:none; align-items:center; justify-content:space-between; gap:10px; color:var(--muted); font-size:.88rem;
+  background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:8px 8px 8px 14px; margin-bottom:12px}
+.zenbar button{height:34px; padding:0 12px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink); font-weight:600}
+body.zen .zenbar{display:flex}
+body.zen .sheet, body.zen .routine, body.zen #toast{display:none !important}
 .genhint{color:var(--muted); font-size:.78rem; margin-top:6px}
 .ear-wait{text-align:center; padding:22px 8px 10px; color:var(--muted)}
 .ear-wait b{display:block; color:var(--ink); font-size:1.05rem; font-weight:600; margin-bottom:4px}
@@ -349,6 +355,8 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
             <select id="inton"><option value="et">Equal temperament</option><option value="pyth">Pythagorean (pure fifths)</option></select></div>
           <div class="set"><label for="droneNote">Drone note</label>
             <select id="droneNote"><option value="auto">Key of the music</option><option value="0">C</option><option value="1">C♯ / D♭</option><option value="2">D</option><option value="3">E♭</option><option value="4">E</option><option value="5">F</option><option value="6">F♯</option><option value="7">G</option><option value="8">A♭</option><option value="9">A</option><option value="10">B♭</option><option value="11">B</option></select></div>
+          <div class="set"><label for="detail">Notes</label>
+            <select id="detail"><option value="0">Clean (ignore slips)</option><option value="1">Normal</option><option value="2">Detailed (every note)</option></select></div>
           <div class="set"><label for="clef">Clef</label>
             <select id="clef">
               <option value="auto">Automatic</option>
@@ -361,6 +369,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           </section>
           <section class="sgrp" id="grpFeedback" data-dock>
           <div class="sgroup">Feedback</div>
+          <div class="set"><span>Zen</span><label class="check"><input type="checkbox" id="zenBox"> Just listen: no notes or feedback</label></div>
           <div class="set"><span>Show</span><label class="check"><input type="checkbox" id="fbText" checked> Written feedback</label></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbTune" checked> Intonation</label></div>
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbRhythm" checked> Rhythm (note lengths)</label></div>
@@ -463,6 +472,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 
   <div class="routine" id="routineBar" hidden></div>
   <div class="toast" id="toast" hidden role="status"></div>
+  <div class="zenbar" id="zenBar">Zen mode: just play and listen. <button id="zenOff">Show notes</button></div>
   <section class="sheet" id="sheet" aria-live="polite">
     <div class="sheet-head"><span class="left"><h2 id="sheetTitle"></h2><span class="sheet-meta" id="sheetKey"></span></span><span class="sheet-meta" id="sheetMeta"></span></div>
     <div id="paper"></div>
@@ -486,7 +496,9 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 
 <script>
 // ---- Transcription: one note at a time ----
-function detectNotes(data, sr, A4){
+// detail: 0 = clean (short slips absorbed relative to the take's own note lengths), 1 = normal,
+// 2 = detailed (every note from 70 ms)
+function detectNotes(data, sr, A4, detail=0){
   A4=A4||440;
   const factor=Math.max(1,Math.round(sr/11025)), fs=sr/factor;
   const n=Math.floor(data.length/factor), x=new Float32Array(n);
@@ -579,7 +591,11 @@ function detectNotes(data, sr, A4){
     if(drop){ for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && r[f]===o.midi) pitch[f]-=drop; o.midi-=drop; }
   }
   for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; } }
-  // clean up blips: very short notes, and short octave jumps, get absorbed by a neighbour
+  // clean up blips: very short notes, and short octave jumps, get absorbed by a neighbour.
+  // How short is 'very short': clean = under 40% of a typical note here (0.1-0.2 s), so a slide or a
+  // scratchy start in a slow passage goes, while real notes in a fast passage stay.
+  const lens0=notes.map(o=>o.b-o.a+1).sort((x,y)=>x-y), medLen=lens0.length?lens0[lens0.length>>1]:20;
+  const minF = detail===2 ? 7 : detail===1 ? 10 : Math.max(10, Math.min(20, Math.round(medLen*0.4)));
   for(let changed=true; changed;){
     changed=false;
     for(let i=0;i<notes.length;i++){
@@ -589,7 +605,7 @@ function detectNotes(data, sr, A4){
       const nearP=p && o.a-p.b<=30, nearQ=q && q.a-o.b<=30;
       const octave = (harm(p)&&nearP) || (harm(q)&&nearQ);
       const first = i===0 && q && len<15 && nearQ;     // a scratchy start before the first real note
-      if(len<10 || first || (octave && len<30)){
+      if(len<minF || first || (octave && len<30)){
         const touchP=p && o.a-p.b<=30, touchQ=q && q.a-o.b<=30;
         // an octave slip belongs to the note it's an octave of (the start of a G4 heard as G5 is
         // part of the G4, not of the F# before it); otherwise the longer neighbour takes it
@@ -623,7 +639,7 @@ function detectNotes(data, sr, A4){
     changed=false;
     for(let i=1;i<notes.length;i++){
       const p=notes[i-1], q=notes[i];
-      if(Math.abs(p.midi-q.midi)!==1 || q.a-p.b>6 || Math.min(p.b-p.a+1, q.b-q.a+1)>=35) continue;
+      if(Math.abs(p.midi-q.midi)!==1 || q.a-p.b>6 || Math.min(p.b-p.a+1, q.b-q.a+1)>=(detail===0?50:35)) continue;
       const mp=meanP(p), mq=meanP(q);
       if(Math.abs(mp-mq)>=0.6) continue;
       const lp=p.b-p.a+1, lq=q.b-q.a+1, m=Math.round((mp*lp+mq*lq)/(lp+lq));
@@ -740,13 +756,14 @@ function tempoFromFirst(notes,val){
   return {bpm:Math.max(30,Math.min(240,60/(best*4))), ref:t0};
 }
 
-function quantize(notes,bpm,refOverride){
+function quantize(notes,bpm,refOverride,detail=0){
   if(!notes.length) return [];
   const six=60/bpm/4, ref=(refOverride!==undefined)?refOverride:notes[0].t0;
   // snap to eighths unless the playing really has sixteenths in it
   const iois=[]; for(let i=1;i<notes.length;i++) iois.push((notes[i].t0-notes[i-1].t0)/six);
   // grid size follows the playing: sixteenths only if they're really there, quarters for slow, long notes
-  const fast=iois.filter(v=>v<1.5).length > iois.length*0.2;
+  // (clean: sixteenths only when most of the passage moves that fast)
+  const fast=iois.filter(v=>v<1.5).length > iois.length*(detail===0?0.5:0.2);
   const srt=iois.slice().sort((a,b)=>a-b), med=srt.length?srt[srt.length>>1]:4;
   const short=iois.filter(v=>v<3).length;
   const g = fast ? 1 : (med>=7 && short===0) ? 4 : 2;
@@ -758,6 +775,8 @@ function quantize(notes,bpm,refOverride){
     if(i<ev.length-1){ const ns=ev[i+1].s; if(ns-o.e<=g) o.e=ns; o.e=Math.min(o.e,ns); }
   }
   const L=ev[ev.length-1]; if(g===2 && L.e-L.s>4) L.e=L.s+Math.max(4,Math.round((L.e-L.s)/4)*4);
+  // the last note isn't cut short: it lasts at least to the next beat (a held note fades, it isn't an eighth + rest)
+  if(detail<2) L.e=Math.max(L.e, Math.ceil((L.s+1)/4)*4);
   return ev;
 }
 
@@ -1060,7 +1079,8 @@ function stretch(x, rate){
   }
   const forgetTake=id=>dbDo('readwrite', st=>st.delete(id));
   const forgetAllTakes=()=>dbDo('readwrite', st=>st.clear());
-  function analyze(t){ const d=t.buffer.getChannelData(0); t.A=t.A||A4(); t.notes=detectNotes(d,t.buffer.sampleRate,t.A); t.bpm=guessTempo(t.notes); t.key=guessKey(t.notes); }
+  const detail=()=>+$('detail').value||0;
+  function analyze(t){ const d=t.buffer.getChannelData(0); t.A=t.A||A4(); t.detail=detail(); t.notes=detectNotes(d,t.buffer.sampleRate,t.A,t.detail); t.bpm=guessTempo(t.notes); t.key=guessKey(t.notes); }
   async function restoreTakes(){
     const rows=await dbDo('readonly', st=>st.getAll());
     if(!rows || !rows.length) return;
@@ -1277,6 +1297,10 @@ function stretch(x, rate){
     $('tStrings').innerHTML=instr().strings.map(m=>'<span data-m="'+m+'">'+noteName(m,KEYS[0]).replace(/-?\d+$/,'')+'</span>').join('');
   }
   $('instr').addEventListener('change',()=>{ save(); renderStrings(); renderSheet(); refreshDrone(); });
+  function setZen(on){ document.body.classList.toggle('zen',on); $('zenBox').checked=on; save(); if(!on) renderSheet(); }
+  $('zenBox').addEventListener('change',()=>setZen($('zenBox').checked));
+  $('zenOff').onclick=()=>setZen(false);
+  $('detail').addEventListener('change',()=>{ save(); renderSheet(); });   // the shown take is read again (notesFor)
 
   function openTarget(open){
     $('targetPanel').hidden=!open; $('targetBtn').setAttribute('aria-expanded',open);
@@ -1326,7 +1350,7 @@ function stretch(x, rate){
     return r;
   }
   function notesFor(t){
-    if(t.notes && t.A!==A4()){ t.notes=detectNotes(t.buffer.getChannelData(0), t.buffer.sampleRate, A4()); t.A=A4(); t.bpm=guessTempo(t.notes); t.key=guessKey(t.notes); }
+    if(t.notes && (t.A!==A4() || t.detail!==detail())){ t.A=A4(); analyze(t); }
   }
   tuningSel.addEventListener('change',()=>{ save(); renderSheet(); refreshDrone(); });
   $('inton').addEventListener('change',()=>{ save(); renderSheet(); refreshDrone(); });
@@ -1471,7 +1495,7 @@ function stretch(x, rate){
   // ---- after each take: score it, log it, climb the tempo ladder ----
   let streak=0, pendingBpm=null;
   function onAnalyzed(t){
-    if(!t.target || !t.notes) return;
+    if(!t.target || !t.notes || document.body.classList.contains('zen')) return;
     const r=judge(alignTarget(t.target.notes, t.notes, t.target.hasOct), keyOf(t.target.notes));
     const cnt={ok:0,tune:0,wrong:0,missed:0}; r.items.forEach(it=>cnt[it.status]++);
     const R=fb.rhythm ? targetRhythm(t, r) : null;
@@ -1517,13 +1541,14 @@ function stretch(x, rate){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target&&!target.ear?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target&&!target.ear?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen')})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
     if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
       if(s.manualBpm) bpm.value=s.manualBpm; if(typeof s.autoBpm==='boolean') autoBpm.checked=s.autoBpm; halfSpeed=!!s.half;
       if(s.fb) for(const k in fb) if(typeof s.fb[k]==='boolean') fb[k]=s.fb[k];
-      if(s.pedal) $('pedal').value=s.pedal; if(s.inton) $('inton').value=s.inton; if(s.instr) $('instr').value=s.instr; if(s.beat) $('beatMode').value=s.beat; if(typeof s.autoSens==='boolean') $('autoSens').checked=s.autoSens; }
+      if(s.pedal) $('pedal').value=s.pedal; if(s.inton) $('inton').value=s.inton; if(s.instr) $('instr').value=s.instr; if(s.beat) $('beatMode').value=s.beat; if(typeof s.autoSens==='boolean') $('autoSens').checked=s.autoSens;
+      if(s.detail) $('detail').value=s.detail; if(s.zen) document.body.classList.add('zen'); }
   }catch(e){}
   $('bpb').addEventListener('change',()=>{ metro.bpb=+$('bpb').value; renderMetro(); save(); });
   [thr,sil,rep,clefSel,bpm,autoBpm].forEach(el=>el.addEventListener('change',save));
@@ -1701,7 +1726,7 @@ function stretch(x, rate){
 
     if(auto.checked && active) playTake(take, +rep.value);
     else setState(active?'listening':'idle');
-    setTimeout(()=>{ take.A=A4(); take.notes=detectNotes(data,sr,A4()); take.bpm=guessTempo(take.notes); take.key=guessKey(take.notes); recordTendency(take); onAnalyzed(take); if(shownTake===take) renderSheet(); },60);
+    setTimeout(()=>{ take.A=A4(); take.detail=detail(); take.notes=detectNotes(data,sr,A4(),take.detail); take.bpm=guessTempo(take.notes); take.key=guessKey(take.notes); recordTendency(take); onAnalyzed(take); if(shownTake===take) renderSheet(); },60);
   }
 
   async function playTake(take, times){
@@ -1832,7 +1857,7 @@ function stretch(x, rate){
       const f=tempoFromFirst(t.notes, firstVal);
       exact=f.bpm; tempo=Math.round(f.bpm); ref=f.ref;
     } else tempo = autoBpm.checked ? t.bpm : +bpm.value;
-    const q=quantize(t.notes,exact||tempo,ref), six=60/(exact||tempo)/4;
+    const q=quantize(t.notes,exact||tempo,ref,t.detail||0), six=60/(exact||tempo)/4;
     // A note runs until the next one starts, unless the sheet has a rest after it; then until its
     // sound stops. The last note is cut at the barline on the sheet, so its length gets no verdict.
     const lens=q.map((e,i)=>{ const n=t.notes[i], legato=i<q.length-1 && e.e===q[i+1].s;
@@ -2453,6 +2478,7 @@ function stretch(x, rate){
   if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost'))
     navigator.serviceWorker.register('./sw.js').catch(()=>{});
 
+  $('zenBox').checked=document.body.classList.contains('zen');
   loadLinkedExercise();
   setState('idle'); pedalSync(); renderStrings(); renderSheet(); renderMetro(); renderRoutineBar(); restoreTakes();
   requestAnimationFrame(draw);

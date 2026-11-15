@@ -94,6 +94,13 @@ with the expected notes. Run it after any change to `detectNotes`, and add a cas
 - **Interval intonation:** `intervalsOf` measures steps between connected notes against equal temperament
   and Pythagorean (spelling-aware). Feedback reports systematic patterns ('Half steps 27 cents narrow');
   the practice panel tracks interval sizes over 2 weeks.
+- **Notes detail** (Settings > Pitch > Notes; `detectNotes(..., detail)`, `quantize(..., detail)`):
+  Clean (default) absorbs notes shorter than 40% of a typical note in the take (0.1-0.2 s: slides,
+  scratchy starts), uses sixteenths only when most of the passage is that fast, merges semitone wobbles
+  more readily; Normal = the earlier behaviour; Detailed keeps every note from 70 ms. The last note always
+  lasts at least to the next beat (not Detailed). Changing it re-reads the shown take.
+- **Zen mode** (Settings > Feedback): body.zen hides the sheet, feedback, routine bar and toasts; takes
+  are still analysed (practice time, tendencies) so switching back shows everything.
 - **Routine** (notes panel): exercises in order, each with its own tempo (`pib-routine`); a bar above the
   sheet steps through them; the position and any tempo change (ladder or +/-) are remembered per exercise.
 

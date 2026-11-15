@@ -45,10 +45,16 @@ const cases = [
   ['arpeggio to G5', take([[55, 1], [59, 1], [62, 1], [67, 1], [71, 1], [74, 1], [79, 2]], { amps: WEAK, noise: 0.04 }), 'G3 B3 D4 G4 B4 D5 G5'],
   ['out of tune B and F#', take(G.map(m => [m, 1, m === 59 ? -28 : m === 66 ? 30 : 0])), 'G3 A3 B3 C4 D4 E4 F♯4 G4'],
   ['note hovering between D# and E', take([[60, 1], [62, 1], [64, 1.5, -45, 18], [65, 1], [67, 1]], { vib: 0.002 }), 'C4 D4 E4 F4 G4'],
+  // slides / scratchy starts: a 100 ms slip a whole step below each note. Clean ignores them, Detailed shows them.
+  ['slips into notes (clean)', take(G.flatMap(m => [[m - 2, 0.1], [m, 0.9]])), 'G3 A3 B3 C4 D4 E4 F♯4 G4', 0],
+  // (in Detailed a slip that equals the previous note just continues it; the others show: A#3, F4)
+  ['slips into notes (detailed)', take(G.flatMap(m => [[m - 2, 0.1], [m, 0.9]])), 'G3 A3 B3 A♯3 C4 D4 E4 F♯4 F4 G4', 2],
+  // real fast notes are not slips: sixteenths at 100 bpm stay in Clean
+  ['fast sixteenths kept (clean)', take([...G, 69, ...G.slice().reverse()].map(m => [m, 0.25]), { bpm: 100 }), 'G3 A3 B3 C4 D4 E4 F♯4 G4 A4 G4 F♯4 E4 D4 C4 B3 A3 G3', 0],
 ];
 let bad = 0;
-for (const [name, x, want] of cases) {
-  const notes = detectNotes(x, SR, 440), key = guessKey(notes);
+for (const [name, x, want, detail = 0] of cases) {
+  const notes = detectNotes(x, SR, 440, detail), key = guessKey(notes);
   const got = notes.map(n => noteName(n.midi, key)).join(' ');
   const ok = got === want; if (!ok) bad++;
   console.log((ok ? 'ok   ' : 'FAIL ') + name.padEnd(34) + got + (ok ? '' : '   (expected ' + want + ')'));
