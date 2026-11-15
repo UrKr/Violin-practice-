@@ -270,6 +270,9 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 .tend .tr::before{content:""; position:absolute; left:50%; top:-3px; bottom:-3px; width:1px; background:var(--line2)}
 .tend .tr i{position:absolute; top:0; bottom:0; border-radius:4px}
 .tend .v{text-align:right; color:var(--muted); white-space:nowrap}
+.tend.iv{grid-template-columns:7.2em 1fr 4.8em}
+.stats .lab2{display:block; font-weight:600; font-size:.95rem; margin:14px 0 8px}
+.ivnote{color:var(--muted); font-size:.76rem; margin:6px 0 8px}
 .stats .sum{font-size:.88rem; margin:0 0 10px}
 .cmp{display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:.84rem; color:var(--muted); margin:2px 0 0}
 .cmp select{font:inherit; font-size:.84rem; height:32px; padding:0 8px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink)}
@@ -768,6 +771,21 @@ function spell(m,key){ const [L,a]=(key&&key.flat?FLAT_SP:SHARP_SP)[m%12]; retur
 // G -3.9, D -2.0, E +2.0, B +3.9, F# +5.9, C -5.9, Bb -9.8 ... F# and Gb differ, so spelling matters.
 const FIFTHS={F:-1,C:0,G:1,D:2,A:3,E:4,B:5};
 function pythOffset(m,key){ const {L,a}=spell(m,key); return 1.955*(FIFTHS[L]+7*a-3); }
+// The steps between neighbouring notes (played connected, held 0.12 s+, clearly detected), measured
+// in cents, with their size in equal temperament and in Pythagorean tuning (which depends on the
+// spelling: E-F 90 cents, F-F# 114, C-E 408).
+const INTERVAL_NAMES={1:'Half steps',2:'Whole steps',3:'Minor thirds',4:'Major thirds',5:'Fourths',6:'Tritones',7:'Fifths',8:'Minor sixths',9:'Major sixths',10:'Minor sevenths',11:'Major sevenths',12:'Octaves'};
+function intervalsOf(notes, key){
+  const out=[];
+  for(let i=1;i<notes.length;i++){
+    const a=notes[i-1], b=notes[i], semis=Math.abs(b.midi-a.midi);
+    if(semis<1 || semis>12 || b.t0-a.t1>0.35 || a.t1-a.t0<0.12 || b.t1-b.t0<0.12 || Math.abs(a.cents)>=45 || Math.abs(b.cents)>=45) continue;
+    const meas=Math.abs((b.midi*100+b.cents)-(a.midi*100+a.cents));
+    const pyth=Math.abs((b.midi*100+pythOffset(b.midi,key))-(a.midi*100+pythOffset(a.midi,key)));
+    out.push({i, semis, meas, et:semis*100, pyth});
+  }
+  return out;
+}
 function noteName(m,key){ const {L,a,oct}=spell(m,key); return L+(a>0?'♯':a<0?'♭':'')+oct; }
 
 // `map`, if given, gets one entry per drawn note head (tied pieces included):
@@ -1308,6 +1326,8 @@ function stretch(x, rate){
     const k=today(), d=tend[k]||(tend[k]={});
     t.notes.forEach(n=>{ if(n.t1-n.t0<0.15 || Math.abs(n.cents)>=50) return;
       const name=noteName(n.midi,t.key), e=d[name]||(d[name]=[0,0,n.midi]); e[0]+=n.cents; e[1]++; });
+    // intervals: deviation from equal temperament and from Pythagorean, so either can be shown later
+    intervalsOf(t.notes,t.key).forEach(iv=>{ const e=d['int'+iv.semis]||(d['int'+iv.semis]=[0,0,0]); e[0]+=iv.meas-iv.et; e[1]+=iv.meas-iv.pyth; e[2]++; });
     const cut=new Date(); cut.setDate(cut.getDate()-60);   // keep two months
     for(const day in tend) if(day<dayKey(cut)) delete tend[day];
     saveJ('pib-tend',tend);
@@ -1335,7 +1355,10 @@ function stretch(x, rate){
       +'<div class="prog"><div class="bars">'+bars+'</div></div>';
     // tendencies, last 14 days
     const agg={};
-    days.forEach(dt=>{ const d=tend[dayKey(dt)]; if(!d) return; for(const nm in d){ const a=agg[nm]||(agg[nm]=[0,0,d[nm][2]]); a[0]+=d[nm][0]; a[1]+=d[nm][1]; } });
+    const iagg={}, pyth=$('inton').value==='pyth';
+    days.forEach(dt=>{ const d=tend[dayKey(dt)]; if(!d) return; for(const nm in d){
+      if(nm.startsWith('int')){ const a=iagg[nm]||(iagg[nm]=[0,0]); a[0]+=d[nm][pyth?1:0]; a[1]+=d[nm][2]; continue; }
+      const a=agg[nm]||(agg[nm]=[0,0,d[nm][2]]); a[0]+=d[nm][0]; a[1]+=d[nm][1]; } });
     const rows=Object.entries(agg).filter(([,a])=>a[1]>=5).map(([nm,a])=>({nm, midi:a[2], n:a[1], c:Math.round(a[0]/a[1]-refByName(nm))}))
       .sort((x,y)=>Math.abs(y.c)-Math.abs(x.c)).slice(0,10);
     html+='<label>Intonation, last 2 weeks <span class="sheet-meta">('+($('inton').value==='pyth'?'Pythagorean':'equal temperament')+')</span></label>';
@@ -1348,6 +1371,13 @@ function stretch(x, rate){
         const c=Math.max(-30,Math.min(30,r.c)), w=Math.abs(c)/60*100, col=Math.abs(r.c)<8?'var(--ok)':Math.abs(r.c)<15?'var(--listen)':'var(--rec)';
         return '<span class="nm">'+r.nm+'</span><span class="tr"><i style="background:'+col+';'+(c>=0?'left:50%':'right:50%')+';width:'+w+'%"></i></span><span class="v">'+(r.c>=0?'+':'−')+Math.abs(Math.round(r.c))+' <small>×'+r.n+'</small></span>';
       }).join('')+'</div>';
+    }
+    const irows=Object.entries(iagg).filter(([,a])=>a[1]>=5).map(([k,a])=>({s:+k.slice(3), n:a[1], c:Math.round(a[0]/a[1])})).sort((a,b)=>a.s-b.s);
+    if(irows.length){
+      html+='<label class="lab2">Interval sizes</label><div class="tend iv">'+irows.map(r=>{
+        const c=Math.max(-30,Math.min(30,r.c)), w=Math.abs(c)/60*100, col=Math.abs(r.c)<8?'var(--ok)':Math.abs(r.c)<15?'var(--listen)':'var(--rec)';
+        return '<span class="nm">'+INTERVAL_NAMES[r.s]+'</span><span class="tr"><i style="background:'+col+';'+(c>=0?'left:50%':'right:50%')+';width:'+w+'%"></i></span><span class="v">'+(r.c>=0?'+':'−')+Math.abs(r.c)+' <small>×'+r.n+'</small></span>';
+      }).join('')+'</div><div class="ivnote">Minus = narrower than it should be, plus = wider.</div>';
     }
     return html+'</div>';
   }
@@ -1746,11 +1776,20 @@ function stretch(x, rate){
     }
     return out;
   }
+  // interval sizes under the chosen intonation: systematic patterns (same kind of step, 2+ times,
+  // 10+ cents off on average) become a feedback item, e.g. 'Half steps 15 cents narrow'
+  const ivRef=iv=> $('inton').value==='pyth' ? iv.pyth : iv.et;
+  function intervalItems(notes, key){
+    const by={}; intervalsOf(notes,key).forEach(iv=>{ const g=by[iv.semis]||(by[iv.semis]=[]); g.push(iv.meas-ivRef(iv)); });
+    return Object.entries(by).filter(([,d])=>d.length>=2).map(([s,d])=>({s:+s, n:d.length, m:d.reduce((a,b)=>a+b,0)/d.length}))
+      .filter(x=>Math.abs(x.m)>=10).sort((a,b)=>Math.abs(b.m)-Math.abs(a.m)).slice(0,2)
+      .map(x=>item('tune','<b>'+INTERVAL_NAMES[x.s]+'</b> '+Math.round(Math.abs(x.m))+' cents '+(x.m>0?'wide':'narrow')+' <small>×'+x.n+'</small>'));
+  }
   const fbBox=items=>items.length ? '<div class="feedback">'+items.map(x=>'<span class="fi c-'+x.c+'-dot">'+x.html+'</span>').join('')+'</div>' : '';
   function feedbackHTML(t, lens){
     if(!fb.text || !t.notes || !t.notes.length) return '';
     const key=t.key, items=[];
-    if(fb.tune) items.push(...tuneItems(t.notes.map(n=>({midi:n.midi, cents:devC(n.midi,n.cents,key)})), key));
+    if(fb.tune) items.push(...tuneItems(t.notes.map(n=>({midi:n.midi, cents:devC(n.midi,n.cents,key)})), key), ...intervalItems(t.notes, key));
     if(fb.rhythm && lens && t.notes.length>=3){
       const bad=lens.map((L,i)=>({i, r:L.a/L.w, free:L.free})).filter(x=>!x.free && Math.abs(x.r-1)>=0.25);
       if(!bad.length) items.push(item('ok','<b>Even note lengths</b>'));
@@ -1762,7 +1801,7 @@ function stretch(x, rate){
     return fbBox(items);
   }
   const beatsTxt=b=>{ const q=Math.max(1,Math.round(Math.abs(b)*4)); return ({1:'¼',2:'½',3:'¾',4:'1'}[q]||(q/4).toFixed(2).replace(/\.?0+$/,''))+' beat'; };
-  function targetFeedbackHTML(r, key, R){
+  function targetFeedbackHTML(r, key, R, played){
     if(!fb.text) return '';
     const items=[];
     if(R && R.flags.length){
@@ -1778,7 +1817,8 @@ function stretch(x, rate){
     if(missed.length) items.push(item('miss','<b>Missed</b> '+missed.map(x=>nm(x.it.midi,key,'miss')+' <small>#'+(x.i+1)+'</small>').join(', ')));
     if(r.extra) items.push(item('ink','<b>'+r.extra+' extra</b>'));
     if(fb.tune) items.push(...tuneItems(r.items.filter(it=>it.played && it.status!=='wrong').map(it=>({midi:it.midi, cents:it.cents})), key));
-    return fbBox(items.slice(0,8));
+    if(fb.tune && played) items.push(...intervalItems(played, key));
+    return fbBox(items.slice(0,9));
   }
 
   function renderSheet(){
@@ -1968,7 +2008,7 @@ function stretch(x, rate){
       if(cnt.missed) html+=dot(col.missed, cnt.missed+' missed');
       if(r.extra) html+=dot(css('--ink'), r.extra+' extra');
     }
-    $('notelist').innerHTML='<div class="score">'+html+'</div>'+targetFeedbackHTML(r, key, R)+HEAR+SHARE;
+    $('notelist').innerHTML='<div class="score">'+html+'</div>'+targetFeedbackHTML(r, key, R, t.notes)+HEAR+SHARE;
     t.lastSummary=(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+(cnt.tune?', '+cnt.tune+' out of tune':'')+(cnt.wrong?', '+cnt.wrong+' wrong':'')+(cnt.missed?', '+cnt.missed+' missed':'');
     makeShareImage();
   }
