@@ -93,6 +93,10 @@ canvas{width:100%; height:40px; display:block; border-radius:8px; visibility:hid
 .sheet-empty{color:var(--muted); font-size:.95rem; padding:26px 4px; text-align:center}
 .notelist{color:var(--muted); font-size:.85rem; padding:0 4px; line-height:1.7; word-spacing:.15em}
 .notelist .sharp,.notelist .flat{color:var(--rec); font-weight:600}
+.feedback{margin:6px 4px 2px; font-size:.92rem; line-height:1.5; color:var(--ink)}
+.feedback p{margin:0 0 2px}
+.feedback b{font-weight:600}
+.feedback .good{color:var(--ok); font-weight:600}
 
 /* takes */
 .takes{display:flex; gap:8px; overflow-x:auto; padding:2px 2px 6px; margin:0 -2px; scrollbar-width:none}
@@ -239,6 +243,10 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
               <option value="bass">Bass</option>
               <option value="guitar">Guitar</option>
             </select></div>
+          <div class="set"><span>Feedback</span><label class="check"><input type="checkbox" id="fbText" checked> Written feedback</label></div>
+          <div class="set"><span></span><label class="check"><input type="checkbox" id="fbTune" checked> Intonation</label></div>
+          <div class="set"><span></span><label class="check"><input type="checkbox" id="fbRhythm" checked> Rhythm (note lengths)</label></div>
+          <div class="set"><span></span><label class="check"><input type="checkbox" id="fbFollow" checked> Highlight while playing</label></div>
           <input type="checkbox" id="auto" checked hidden>
         </div>
       </details>
@@ -722,6 +730,9 @@ function stretch(x, rate){
   // what playback is doing right now ({take, when, offset, rate}), and what the sheet shows
   // (so the note being played can be lit up): see updatePlayhead()
   let playing=null, hl=null, lastAbc='';
+  // what feedback to give (Settings → Feedback); saved with the other settings
+  const fb={text:true, tune:true, rhythm:true, follow:true};
+  const FB_IDS={text:'fbText', tune:'fbTune', rhythm:'fbRhythm', follow:'fbFollow'};
 
   // ---- recordings kept on the device (IndexedDB), so takes survive closing the page ----
   // Audio is stored as 16-bit samples. Nothing here ever leaves the device.
@@ -933,7 +944,7 @@ function stretch(x, rate){
     if(!t.target || !t.notes) return;
     const r=alignTarget(t.target.notes, t.notes, t.target.hasOct);
     const cnt={ok:0,tune:0,wrong:0,missed:0}; r.items.forEach(it=>cnt[it.status]++);
-    const n=r.items.length, clean=cnt.ok===n && !r.extra;
+    const n=r.items.length, clean=(fb.tune ? cnt.ok : cnt.ok+cnt.tune)===n && !r.extra;
     recordProgress(t.target.str,{clean, right:cnt.ok+cnt.tune, total:n, inTune:cnt.ok, bpm:t.metro?t.metro.bpm:0});
     const need=+$('ladder').value;
     if(need && t.metro && metro.on){
@@ -973,14 +984,17 @@ function stretch(x, rate){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
     if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
-      if(s.manualBpm) bpm.value=s.manualBpm; if(typeof s.autoBpm==='boolean') autoBpm.checked=s.autoBpm; halfSpeed=!!s.half; }
+      if(s.manualBpm) bpm.value=s.manualBpm; if(typeof s.autoBpm==='boolean') autoBpm.checked=s.autoBpm; halfSpeed=!!s.half;
+      if(s.fb) for(const k in fb) if(typeof s.fb[k]==='boolean') fb[k]=s.fb[k]; }
   }catch(e){}
   $('bpb').addEventListener('change',()=>{ metro.bpb=+$('bpb').value; renderMetro(); save(); });
   [thr,sil,rep,clefSel,bpm,autoBpm].forEach(el=>el.addEventListener('change',save));
+  for(const k in FB_IDS){ const el=$(FB_IDS[k]); el.checked=fb[k];
+    el.addEventListener('change',()=>{ fb[k]=el.checked; save(); renderSheet(); }); }
 
   function fmt(s){ const m=Math.floor(s/60), r=(s%60); return m+':'+r.toFixed(1).padStart(4,'0'); }
   function updateLabels(){
@@ -1235,6 +1249,65 @@ function stretch(x, rate){
   [bpm,autoBpm,clefSel].forEach(el=>el.addEventListener('input',()=>{ updateLabels(); renderSheet(); }));
   autoBpm.addEventListener('change',()=>{ updateLabels(); renderSheet(); });
 
+  // Tempo, written notes and held-vs-written length of each note, as the sheet shows them.
+  function rhythmOf(t){
+    let tempo, beats=4, ref, exact;
+    if(t.metro){
+      tempo=t.metro.bpm; beats=t.metro.bpb;
+      const six=60/tempo/4, BAR=beats*4;
+      const first=Math.round((t.audioStart+t.notes[0].t0-t.metro.t0)/six);
+      ref = t.metro.t0 + Math.floor(first/BAR)*BAR*six - t.audioStart;
+    } else if(firstVal!=='auto'){
+      const f=tempoFromFirst(t.notes, firstVal);
+      exact=f.bpm; tempo=Math.round(f.bpm); ref=f.ref;
+    } else tempo = autoBpm.checked ? t.bpm : +bpm.value;
+    const q=quantize(t.notes,exact||tempo,ref), six=60/(exact||tempo)/4;
+    // A note runs until the next one starts, unless the sheet has a rest after it; then until its
+    // sound stops. The last note is cut at the barline on the sheet, so its length gets no verdict.
+    const lens=q.map((e,i)=>{ const n=t.notes[i], legato=i<q.length-1 && e.e===q[i+1].s;
+      return {w:(e.e-e.s)*six, a:(legato ? t.notes[i+1].t0 : n.t1)-n.t0, free:i===q.length-1}; });
+    return {tempo, beats, q, lens};
+  }
+
+  // ---- written feedback under the sheet: the few things worth working on ----
+  const sgn=c=>(c>0?'+':'−')+Math.abs(c);
+  function tuneLines(items, key){   // items: [{midi, cents}]
+    const off=items.filter(x=>Math.abs(x.cents)>=20);
+    if(!off.length) return items.length ? ['<span class="good">In tune</span>'] : [];
+    const out=[];
+    for(const [dir,label] of [[1,'Sharp'],[-1,'Flat']]){
+      const g=off.filter(x=>Math.sign(x.cents)===dir).sort((a,b)=>Math.abs(b.cents)-Math.abs(a.cents));
+      if(g.length) out.push('<b>'+label+':</b> '+g.slice(0,4).map(x=>noteName(x.midi,key)+' ('+sgn(x.cents)+')').join(', ')+(g.length>4?' …':''));
+    }
+    return out;
+  }
+  function feedbackHTML(t, lens){
+    if(!fb.text || !t.notes || !t.notes.length) return '';
+    const key=t.key, lines=[];
+    if(fb.tune) lines.push(...tuneLines(t.notes, key));
+    if(fb.rhythm && lens && t.notes.length>=3){
+      const bad=lens.map((L,i)=>({i, r:L.a/L.w, free:L.free})).filter(x=>!x.free && Math.abs(x.r-1)>=0.25);
+      if(!bad.length) lines.push('<span class="good">Even note lengths</span>');
+      for(const [long,label] of [[true,'Held too long'],[false,'Cut short']]){
+        const g=bad.filter(x=>(x.r>1)===long).sort((a,b)=>Math.abs(b.r-1)-Math.abs(a.r-1));
+        if(g.length) lines.push('<b>'+label+':</b> '+g.slice(0,4).map(x=>noteName(t.notes[x.i].midi,key)+' (note '+(x.i+1)+', '+sgn(Math.round((x.r-1)*100))+'%)').join(', ')+(g.length>4?' …':''));
+      }
+    }
+    return lines.length ? '<div class="feedback">'+lines.map(l=>'<p>'+l+'</p>').join('')+'</div>' : '';
+  }
+  function targetFeedbackHTML(r, key){
+    if(!fb.text) return '';
+    const lines=[];
+    r.items.forEach((it,i)=>{
+      if(it.status==='wrong') lines.push('<b>Note '+(i+1)+':</b> played '+noteName(it.played.midi,key)+', should be '+noteName(it.midi,key));
+    });
+    const missed=r.items.map((it,i)=>({it,i})).filter(x=>x.it.status==='missed');
+    if(missed.length) lines.push('<b>Missed:</b> '+missed.map(x=>'note '+(x.i+1)+' ('+noteName(x.it.midi,key)+')').join(', '));
+    if(r.extra) lines.push('<b>'+r.extra+' extra note'+(r.extra>1?'s':'')+'</b> not in the target');
+    if(fb.tune) lines.push(...tuneLines(r.items.filter(it=>it.played).map(it=>({midi:it.midi, cents:it.played.cents})), key));
+    return lines.length ? '<div class="feedback">'+lines.slice(0,6).map(l=>'<p>'+l+'</p>').join('')+'</div>' : '';
+  }
+
   function renderSheet(){
     const paper=$('paper'), meta=$('sheetMeta'), list=$('notelist');
     const t=shownTake;
@@ -1251,31 +1324,13 @@ function stretch(x, rate){
     if(!t.notes){ paper.innerHTML='<div class="sheet-empty">Reading the notes…</div>'; return; }
     if(!t.notes.length){ meta.textContent=''; list.innerHTML='';
       paper.innerHTML='<div class="sheet-empty">No clear notes. Try single notes, a bit louder.</div>'; return; }
-    let tempo, beats=4, ref, exact;
     const fn=$('firstnote');
     fn.hidden = !!t.metro;
     fn.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.v==String(firstVal))));
-    if(t.metro){
-      tempo=t.metro.bpm; beats=t.metro.bpb;
-      const six=60/tempo/4, BAR=beats*4;
-      const first=Math.round((t.audioStart+t.notes[0].t0-t.metro.t0)/six);
-      ref = t.metro.t0 + Math.floor(first/BAR)*BAR*six - t.audioStart;
-    } else if(firstVal!=='auto'){
-      const f=tempoFromFirst(t.notes, firstVal);
-      exact=f.bpm; tempo=Math.round(f.bpm); ref=f.ref;
-    } else {
-      tempo = autoBpm.checked ? t.bpm : +bpm.value;
-      if(autoBpm.checked){ bpm.value=t.bpm; }
-    }
-    const lay = sheetLayout(paper);
-    const map=[], q=quantize(t.notes,exact||tempo,ref);
+    if(!t.metro && firstVal==='auto' && autoBpm.checked) bpm.value=t.bpm;
+    const {tempo, beats, q, lens} = rhythmOf(t);
+    const lay = sheetLayout(paper), map=[];
     const abc = toAbc(q, tempo, clefSel.value, lay.bars, t.key, beats, map); lastAbc=abc;
-    // written length of each note vs. how long it was really held. A note runs until the next
-    // one starts, unless the sheet has a rest after it; then it runs until its sound stops.
-    const six=60/(exact||tempo)/4;
-    const lens=q.map((e,i)=>{ const n=t.notes[i], legato=i<q.length-1 && e.e===q[i+1].s;
-      // the last note is cut at the barline on the sheet, so its written length isn't a goal: no verdict
-      return {w:(e.e-e.s)*six, a:(legato ? t.notes[i+1].t0 : n.t1)-n.t0, free:i===q.length-1}; });
     const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
     paper.innerHTML='';
     if(window.ABCJS){
@@ -1283,11 +1338,11 @@ function stretch(x, rate){
     } else paper.innerHTML='<div class="sheet-empty">The notation library didn’t load. Check your connection and reload the page.</div>';
     $('sheetKey').textContent = keyLabel(t.key);
     meta.innerHTML=segHTML(t);
-    list.innerHTML = t.notes.map(n=>{
-      const off=Math.abs(n.cents)>=20, tip=off?(n.cents>0?' sharp':' flat'):'';
+    list.innerHTML = feedbackHTML(t, lens) + t.notes.map(n=>{
+      const off=fb.tune && Math.abs(n.cents)>=20, tip=off?(n.cents>0?' sharp':' flat'):'';
       return `<span class="${off?(n.cents>0?'sharp':'flat'):''}" title="${n.cents>0?'+':''}${n.cents} cents${tip}">${noteName(n.midi,t.key)}${off?(n.cents>0?'↑':'↓'):''}</span>`;
     }).join(' ') + '<div>'+SHARE+'</div>';
-    hl={take:t, times:t.notes.map((n,i)=>[n.t0,n.t0+lens[i].a]), lens, bars:[], els:noteGroups(paper,map), spans:[...list.querySelectorAll(':scope > span')], cur:-1};
+    hl={take:t, times:t.notes.map((n,i)=>[n.t0,n.t0+lens[i].a]), lens:fb.rhythm?lens:null, bars:[], els:noteGroups(paper,map), spans:[...list.querySelectorAll(':scope > span')], cur:-1};
     makeShareImage();
   }
 
@@ -1376,6 +1431,7 @@ function stretch(x, rate){
     $('firstnote').hidden=true;
     $('sheetMeta').innerHTML=segHTML(t);
     const tt=t.target, r=alignTarget(tt.notes, t.notes, tt.hasOct);
+    if(!fb.tune) r.items.forEach(it=>{ if(it.status==='tune') it.status='ok'; });
     const key=keyOf(r.items.map(x=>x.midi));
     const ev=r.items.map((it,i)=>({midi:it.midi, s:i*4, e:i*4+4,
       above: it.status==='tune' ? (it.cents>0?'↑':'↓') : '',
@@ -1391,7 +1447,7 @@ function stretch(x, rate){
     if(cnt.wrong) html+=dot(col.wrong, cnt.wrong+' wrong');
     if(cnt.missed) html+=dot(col.missed, cnt.missed+' missed');
     if(r.extra) html+=dot(css('--ink'), r.extra+' extra');
-    $('notelist').innerHTML='<div class="score">'+html+'</div>'+HEAR+SHARE;
+    $('notelist').innerHTML='<div class="score">'+html+'</div>'+targetFeedbackHTML(r, key)+HEAR+SHARE;
     t.lastSummary=(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+(cnt.tune?', '+cnt.tune+' out of tune':'')+(cnt.wrong?', '+cnt.wrong+' wrong':'')+(cnt.missed?', '+cnt.missed+' missed':'');
     makeShareImage();
   }
@@ -1508,7 +1564,7 @@ function stretch(x, rate){
       format:'play-it-back-debug', version:1, exported:new Date().toISOString(),
       report:text,
       page:location.href, pageModified:document.lastModified, userAgent:navigator.userAgent,
-      settings, view:{sheetView, halfSpeed, firstNote:firstVal, clef:clefSel.value, autoBpm:autoBpm.checked, manualBpm:+bpm.value, metroOn:metro.on},
+      settings, view:{sheetView, halfSpeed, firstNote:firstVal, clef:clefSel.value, autoBpm:autoBpm.checked, manualBpm:+bpm.value, metroOn:metro.on, feedback:{...fb}},
       take:{id:t.id, dur:t.dur, sampleRate:t.buffer.sampleRate, A4:t.A||A4(), bpm:t.bpm, key:key?key.name:null,
         metro:t.metro, target:t.target, preroll:PREROLL, tail:TAIL},
       heard:(t.notes||[]).map((n,i)=>({n:i+1, name:noteName(n.midi,key), midi:n.midi, t0:+n.t0.toFixed(3), t1:+n.t1.toFixed(3), cents:n.cents,
@@ -1553,7 +1609,7 @@ function stretch(x, rate){
     if(!hl) return;
     const pos=playPos(), isTune=playing && playing.take.id==='target';
     if(hl.pitchX){
-      const ph=$('playhead'), on=pos!==null && !isTune && playing.take===hl.take && pos<=hl.dur;
+      const ph=$('playhead'), on=fb.follow && pos!==null && !isTune && playing.take===hl.take && pos<=hl.dur;
       if(ph.hidden!==!on) ph.hidden=!on;
       if(on){ const x=hl.pitchX(pos), w=$('pitchWrap'); ph.style.left=x+'px';
         if(x<w.scrollLeft+20 || x>w.scrollLeft+w.clientWidth-20) w.scrollLeft=Math.max(0,x-w.clientWidth*0.25); }
@@ -1567,7 +1623,7 @@ function stretch(x, rate){
       for(let i=0;i<hl.times.length;i++){ const tt=hl.times[i]; if(tt && tt[0]<=pos+0.03) idx=i; }
       if(idx>=0 && pos>hl.times[idx][1]+0.25) idx=-1;
     }
-    markNote(idx);
+    markNote(fb.follow ? idx : -1);
     if(hl.lens) updateBars(pos);
   }
 
