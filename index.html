@@ -67,7 +67,7 @@ details.settings[open] > summary{color:var(--ink); background:var(--surface)}
   background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:18px 18px 8px;
   box-shadow:var(--shadow-lg)}
 .wrap{position:relative}
-.set{display:grid; grid-template-columns:7.8em 1fr 3.4em; align-items:center; gap:10px; margin-bottom:12px; font-size:.9rem; font-weight:500}
+.set{display:grid; grid-template-columns:7.8em 1fr 3.4em; align-items:center; gap:10px; margin-bottom:10px; font-size:.9rem; font-weight:500}
 .sgroup{font-size:.7rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:0 0 10px}
 .sgrp{margin-top:16px; padding-top:14px; border-top:1px solid var(--line)}
 .sgrp:first-child{margin-top:0; padding-top:0; border-top:none}
@@ -94,7 +94,7 @@ details.settings[open] > summary{color:var(--ink); background:var(--surface)}
 #thr{direction:rtl}
 
 /* the big button */
-.stage{display:flex; flex-direction:column; align-items:center; gap:14px; margin:14px 0 18px}
+.stage{display:flex; flex-direction:column; align-items:center; gap:12px; margin:12px 0 16px}
 .orbbox{position:relative}
 .orb{--c:var(--idle); --lvl:0;
   width:min(52vw,200px); aspect-ratio:1; border-radius:50%; border:none; position:relative;
@@ -114,26 +114,33 @@ details.settings[open] > summary{color:var(--ink); background:var(--surface)}
 canvas{width:100%; height:34px; display:block; border-radius:8px; visibility:hidden}
 .stage > canvas{max-width:484px}
 .active canvas{visibility:visible}
+.stage:not(.active) > canvas{display:none}
 
 .err{background:color-mix(in srgb,var(--rec) 14%,var(--surface)); border-left:4px solid var(--rec);
   padding:10px 14px; border-radius:6px; font-size:.92rem; display:none; margin:6px 0 12px}
 
 /* sheet */
 .sheet{background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:14px 14px 14px; margin-bottom:14px; box-shadow:var(--shadow)}
-.sheet-head{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:0 4px 8px; border-bottom:1px solid var(--line); margin-bottom:6px}
+.sheet-head{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:0 2px 8px; border-bottom:1px solid var(--line); margin-bottom:4px}
 .sheet-head h2{margin:0; font-size:.98rem; font-weight:650; letter-spacing:-.01em}
 .sheet-meta{color:var(--muted); font-size:.84rem; font-variant-numeric:tabular-nums}
 #paper{min-height:80px; overflow-x:auto}
 #paper svg{max-width:100%}
 .sheet-empty{color:var(--muted); font-size:.95rem; padding:26px 4px; text-align:center}
 .notelist{color:var(--muted); font-size:.82rem; padding:0 4px; line-height:1.7; word-spacing:.15em; font-variant-numeric:tabular-nums}
-.notelist .sharp,.notelist .flat{color:var(--rec); font-weight:600}
-.feedback{margin:6px 0 8px; padding:8px 12px; border-radius:12px; background:var(--bg); font-size:.88rem; line-height:1.5; color:var(--ink)}
-.feedback p{margin:2px 0; padding-left:15px; position:relative}
-.feedback p::before{content:""; position:absolute; left:0; top:.55em; width:7px; height:7px; border-radius:50%; background:var(--listen)}
-.feedback p.good::before{background:var(--ok)}
+.notelist .sharp,.notelist .flat{color:var(--listen); font-weight:600}
+.feedback{display:flex; flex-wrap:wrap; gap:3px 16px; margin:4px 0 6px; padding:7px 12px; border-radius:12px; background:var(--bg);
+  font-size:.86rem; line-height:1.45; color:var(--ink)}
+.feedback .fi{padding-left:13px; position:relative}
+.feedback .fi::before{content:""; position:absolute; left:0; top:.5em; width:7px; height:7px; border-radius:50%; background:var(--muted)}
 .feedback b{font-weight:600}
-.feedback .good{color:var(--ok); font-weight:600}
+.feedback small{color:var(--muted); font-size:.78em}
+/* note colours, shared by the staff, the note list, the length bars and the feedback */
+.c-ok{color:var(--ok)} .c-tune{color:var(--listen)} .c-bad{color:var(--rec)} .c-miss{color:var(--muted)}
+.c-ok-dot::before{background:var(--ok) !important} .c-tune-dot::before{background:var(--listen) !important}
+.c-bad-dot::before{background:var(--rec) !important} .c-miss-dot::before{background:var(--muted) !important}
+.c-ink-dot::before{background:var(--ink) !important}
+.c-ok-dot > b:first-child{color:var(--ok)}
 
 /* takes */
 .takes{display:flex; gap:8px; overflow-x:auto; padding:2px 2px 6px; margin:0 -2px; scrollbar-width:none}
@@ -156,8 +163,8 @@ canvas{width:100%; height:34px; display:block; border-radius:8px; visibility:hid
 .dots i{width:7px; height:7px; border-radius:50%; background:var(--line2)}
 .dots i:first-child{width:10px; height:10px}
 .dots i.now{background:var(--ink)}
-.metro:not(.on) + .dots{visibility:hidden}
-.firstnote{display:flex; align-items:center; gap:2px; margin:12px 0 0; padding-top:10px; border-top:1px solid var(--line); flex-wrap:wrap}
+.metro:not(.on) + .dots{display:none}
+.firstnote{display:flex; align-items:center; gap:2px; margin:10px 0 0; padding-top:8px; border-top:1px solid var(--line); flex-wrap:wrap}
 .firstnote .lab{color:var(--muted); font-size:.82rem; margin-right:8px}
 .firstnote button{height:32px; min-width:38px; padding:0 10px; border-radius:8px; border:none;
   background:var(--bg); display:grid; place-items:center; font-size:.82rem; font-weight:500; color:var(--ink)}
@@ -1376,43 +1383,47 @@ function stretch(x, rate){
   }
 
   // ---- written feedback under the sheet: the few things worth working on ----
+  // Each item is coloured like the notes it is about: green = right / in tune, amber = out of tune,
+  // red = wrong note or a length far off (as the length bars), grey = missed.
   const sgn=c=>(c>0?'+':'−')+Math.abs(c);
-  function tuneLines(items, key){   // items: [{midi, cents}]
+  const nm=(m,key,c)=>'<span class="c-'+c+'">'+noteName(m,key)+'</span>';
+  const item=(c,html)=>({c,html});
+  function tuneItems(items, key){   // items: [{midi, cents}]
     const off=items.filter(x=>Math.abs(x.cents)>=20);
-    if(!off.length) return items.length ? ['<span class="good">In tune</span>'] : [];
+    if(!off.length) return items.length ? [item('ok','<b>In tune</b>')] : [];
     const out=[];
     for(const [dir,label] of [[1,'Sharp'],[-1,'Flat']]){
       const g=off.filter(x=>Math.sign(x.cents)===dir).sort((a,b)=>Math.abs(b.cents)-Math.abs(a.cents));
-      if(g.length) out.push('<b>'+label+':</b> '+g.slice(0,4).map(x=>noteName(x.midi,key)+' ('+sgn(x.cents)+')').join(', ')+(g.length>4?' …':''));
+      if(g.length) out.push(item('tune','<b>'+label+'</b> '+g.slice(0,4).map(x=>nm(x.midi,key,'tune')+' '+sgn(x.cents)).join(', ')+(g.length>4?' …':'')));
     }
     return out;
   }
+  const fbBox=items=>items.length ? '<div class="feedback">'+items.map(x=>'<span class="fi c-'+x.c+'-dot">'+x.html+'</span>').join('')+'</div>' : '';
   function feedbackHTML(t, lens){
     if(!fb.text || !t.notes || !t.notes.length) return '';
-    const key=t.key, lines=[];
-    if(fb.tune) lines.push(...tuneLines(t.notes.map(n=>({midi:n.midi, cents:devC(n.midi,n.cents,key)})), key));
+    const key=t.key, items=[];
+    if(fb.tune) items.push(...tuneItems(t.notes.map(n=>({midi:n.midi, cents:devC(n.midi,n.cents,key)})), key));
     if(fb.rhythm && lens && t.notes.length>=3){
       const bad=lens.map((L,i)=>({i, r:L.a/L.w, free:L.free})).filter(x=>!x.free && Math.abs(x.r-1)>=0.25);
-      if(!bad.length) lines.push('<span class="good">Even note lengths</span>');
-      for(const [long,label] of [[true,'Held too long'],[false,'Cut short']]){
+      if(!bad.length) items.push(item('ok','<b>Even note lengths</b>'));
+      for(const [long,label] of [[true,'Too long'],[false,'Too short']]){
         const g=bad.filter(x=>(x.r>1)===long).sort((a,b)=>Math.abs(b.r-1)-Math.abs(a.r-1));
-        if(g.length) lines.push('<b>'+label+':</b> '+g.slice(0,4).map(x=>noteName(t.notes[x.i].midi,key)+' (note '+(x.i+1)+', '+sgn(Math.round((x.r-1)*100))+'%)').join(', ')+(g.length>4?' …':''));
+        if(g.length) items.push(item('bad','<b>'+label+'</b> '+g.slice(0,4).map(x=>nm(t.notes[x.i].midi,key,'bad')+' <small>#'+(x.i+1)+'</small> '+sgn(Math.round((x.r-1)*100))+'%').join(', ')+(g.length>4?' …':'')));
       }
     }
-    return lines.length ? '<div class="feedback">'+lines.map(fbLine).join('')+'</div>' : '';
+    return fbBox(items);
   }
-  const fbLine=l=>'<p'+(l.includes('class="good"')?' class="good"':'')+'>'+l+'</p>';
   function targetFeedbackHTML(r, key){
     if(!fb.text) return '';
-    const lines=[];
+    const items=[];
     r.items.forEach((it,i)=>{
-      if(it.status==='wrong') lines.push('<b>Note '+(i+1)+':</b> played '+noteName(it.played.midi,key)+', should be '+noteName(it.midi,key));
+      if(it.status==='wrong') items.push(item('bad','<b>Note '+(i+1)+'</b> '+nm(it.played.midi,key,'bad')+' → '+nm(it.midi,key,'ok')));
     });
     const missed=r.items.map((it,i)=>({it,i})).filter(x=>x.it.status==='missed');
-    if(missed.length) lines.push('<b>Missed:</b> '+missed.map(x=>'note '+(x.i+1)+' ('+noteName(x.it.midi,key)+')').join(', '));
-    if(r.extra) lines.push('<b>'+r.extra+' extra note'+(r.extra>1?'s':'')+'</b> not in the target');
-    if(fb.tune) lines.push(...tuneLines(r.items.filter(it=>it.played && it.status!=='wrong').map(it=>({midi:it.midi, cents:it.cents})), key));
-    return lines.length ? '<div class="feedback">'+lines.slice(0,6).map(fbLine).join('')+'</div>' : '';
+    if(missed.length) items.push(item('miss','<b>Missed</b> '+missed.map(x=>nm(x.it.midi,key,'miss')+' <small>#'+(x.i+1)+'</small>').join(', ')));
+    if(r.extra) items.push(item('ink','<b>'+r.extra+' extra</b>'));
+    if(fb.tune) items.push(...tuneItems(r.items.filter(it=>it.played && it.status!=='wrong').map(it=>({midi:it.midi, cents:it.cents})), key));
+    return fbBox(items.slice(0,7));
   }
 
   function renderSheet(){
@@ -1450,6 +1461,13 @@ function stretch(x, rate){
       return `<span class="${off?(c>0?'sharp':'flat'):''}" title="${c>0?'+':''}${c} cents${tip}">${noteName(n.midi,t.key)}${off?(c>0?'↑':'↓'):''}</span>`;
     }).join(' ') + '<div>'+ASTARGET+SHARE+'</div>';
     hl={take:t, times:t.notes.map((n,i)=>[n.t0,n.t0+lens[i].a]), lens:fb.rhythm?lens:null, bars:[], els:noteGroups(paper,map), spans:[...list.querySelectorAll(':scope > span')], cur:-1};
+    // colour notes on the staff like the feedback text: amber = out of tune, red = length far off
+    const amber=css('--listen'), red=css('--rec');
+    t.notes.forEach((n,i)=>{
+      const L=lens[i], badLen=fb.rhythm && t.notes.length>=3 && !L.free && Math.abs(L.a/L.w-1)>=0.25;
+      const c = badLen ? red : fb.tune && Math.abs(devC(n.midi,n.cents,t.key))>=20 ? amber : null;
+      if(c) (hl.els[i]||[]).forEach(g=>g.querySelectorAll('path,ellipse,circle').forEach(el=>{ el.style.fill=c; if(el.getAttribute('stroke') && el.getAttribute('stroke')!=='none') el.style.stroke=c; }));
+    });
     makeShareImage();
   }
 
@@ -1551,10 +1569,12 @@ function stretch(x, rate){
     const right=cnt.ok+cnt.tune, n=r.items.length;
     const dot=(c,txt)=>'<span><i style="background:'+c+'"></i>'+txt+'</span>';
     let html='<strong>'+(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+'</strong>';
-    if(cnt.tune) html+=dot(col.tune, cnt.tune+' out of tune');
-    if(cnt.wrong) html+=dot(col.wrong, cnt.wrong+' wrong');
-    if(cnt.missed) html+=dot(col.missed, cnt.missed+' missed');
-    if(r.extra) html+=dot(css('--ink'), r.extra+' extra');
+    if(!fb.text){
+      if(cnt.tune) html+=dot(col.tune, cnt.tune+' out of tune');
+      if(cnt.wrong) html+=dot(col.wrong, cnt.wrong+' wrong');
+      if(cnt.missed) html+=dot(col.missed, cnt.missed+' missed');
+      if(r.extra) html+=dot(css('--ink'), r.extra+' extra');
+    }
     $('notelist').innerHTML='<div class="score">'+html+'</div>'+targetFeedbackHTML(r, key)+HEAR+SHARE;
     t.lastSummary=(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+(cnt.tune?', '+cnt.tune+' out of tune':'')+(cnt.wrong?', '+cnt.wrong+' wrong':'')+(cnt.missed?', '+cnt.missed+' missed':'');
     makeShareImage();
