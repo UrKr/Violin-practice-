@@ -271,6 +271,9 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 .tend .tr i{position:absolute; top:0; bottom:0; border-radius:4px}
 .tend .v{text-align:right; color:var(--muted); white-space:nowrap}
 .stats .sum{font-size:.88rem; margin:0 0 10px}
+.cmp{display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:.84rem; color:var(--muted); margin:2px 0 0}
+.cmp select{font:inherit; font-size:.84rem; height:32px; padding:0 8px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink)}
+.cmpkey i{display:inline-block; width:16px; height:2px; background:var(--muted); opacity:.6; vertical-align:middle; margin-right:5px}
 .stats .empty{color:var(--muted); font-size:.88rem; padding:4px 0 10px}
 .prog .cap{font-size:.85rem; color:var(--muted); margin-bottom:6px}
 .prog .bars{display:flex; gap:4px}
@@ -608,8 +611,47 @@ function detectNotes(data, sr, A4){
     const w=[]; for(let k=f-1;k<=f+1;k++) if(k>=0&&k<frames&&pitch[k]!==null) w.push(pitch[k]);
     if(pitch[f]!==null && w.length>=2){ w.sort((a,b)=>a-b); p[f]=w[w.length>>1]; }
   }
-  res.curve={dt:hop/fs, start:W/2/fs, p};
+  const rn=new Float32Array(frames); for(let f=0;f<frames;f++) rn[f]=maxR>0 ? rms[f]/maxR : 0;
+  res.curve={dt:hop/fs, start:W/2/fs, p, rms:rn};
   return res;
+}
+
+// Sound of a take, from its pitch and loudness curves, on notes held 0.6 s or more (attack and
+// release left out). Vibrato: the slow pitch drift is removed, then the wobble's speed (Hz), width
+// (+/- cents) and evenness (how much the swings vary). Bow: how steady the loudness is.
+function soundOf(notes){
+  const cur=notes && notes.curve; if(!cur || !cur.rms) return null;
+  const vib=[], bow=[]; let long=0;
+  notes.forEach((n,i)=>{
+    if(n.t1-n.t0<0.6) return;
+    const f0=Math.ceil((n.t0+0.15-cur.start)/cur.dt), f1=Math.min(cur.p.length-1, Math.floor((n.t1-0.12-cur.start)/cur.dt));
+    if(f1-f0<35) return;
+    const xs=[]; let bad=0, last=null;
+    for(let f=f0;f<=f1;f++){ const v=cur.p[f]; if(isNaN(v)||Math.abs(v-n.midi)>0.8){ bad++; xs.push(last); } else { last=(v-n.midi)*100; xs.push(last); } }
+    if(bad>xs.length*0.2) return;
+    const first=xs.find(v=>v!==null); for(let k=0;k<xs.length;k++) if(xs[k]===null) xs[k]=k?xs[k-1]:first;
+    long++;
+    const H=12, d=xs.map((v,k)=>{ let s=0,c=0; for(let j=Math.max(0,k-H); j<=Math.min(xs.length-1,k+H); j++){ s+=xs[j]; c++; } return v-s/c; });
+    const cross=[], amps=[]; let sign=0, peak=0;
+    d.forEach((v,k)=>{ peak=Math.max(peak,Math.abs(v));
+      if(sign>=0 && v<-2){ if(sign>0){ cross.push(k); amps.push(peak); peak=0; } sign=-1; }
+      else if(sign<=0 && v>2){ if(sign<0){ cross.push(k); amps.push(peak); peak=0; } sign=1; } });
+    const width=Math.sqrt(d.reduce((a,v)=>a+v*v,0)/d.length)*Math.SQRT2;
+    if(cross.length>=3){
+      const rate=(cross.length-1)/2/((cross[cross.length-1]-cross[0])*cur.dt);
+      if(rate>=3.5 && rate<=9 && width>=5){
+        const a=amps.slice(1), m=a.reduce((x,y)=>x+y,0)/a.length, sd=Math.sqrt(a.reduce((x,y)=>x+(y-m)**2,0)/a.length);
+        vib.push({i, rate, width, cv: m>0 ? sd/m : 0});
+      }
+    }
+    const rs=[]; for(let f=f0;f<=f1;f++) rs.push(cur.rms[f]);
+    const m=rs.reduce((x,y)=>x+y,0)/rs.length, sd=Math.sqrt(rs.reduce((x,y)=>x+(y-m)**2,0)/rs.length);
+    bow.push({i, cv: m>0 ? sd/m : 0});
+  });
+  const med=a=>{ const b=a.slice().sort((x,y)=>x-y); return b[b.length>>1]; };
+  return { long,
+    vib: vib.length ? {n:vib.length, rate:med(vib.map(v=>v.rate)), width:med(vib.map(v=>v.width)), cv:med(vib.map(v=>v.cv))} : null,
+    bow: bow.length ? {cv:med(bow.map(b=>b.cv)), uneven:bow.filter(b=>b.cv>=0.3).map(b=>b.i)} : null };
 }
 
 // One quick pitch reading for the live tuner. Returns a fractional MIDI number or null.
@@ -942,7 +984,7 @@ function stretch(x, rate){
   let takes=[], takeCounter=0, currentSrc=null, shownTake=null, recAudioStart=0;
   // what playback is doing right now ({take, when, offset, rate}), and what the sheet shows
   // (so the note being played can be lit up): see updatePlayhead()
-  let playing=null, hl=null, lastAbc='';
+  let playing=null, hl=null, lastAbc='', compareId=null;
   // what feedback to give (Settings → Feedback); saved with the other settings
   const fb={text:true, tune:true, rhythm:true, follow:true};
   const FB_IDS={text:'fbText', tune:'fbTune', rhythm:'fbRhythm', follow:'fbFollow'};
@@ -1771,6 +1813,7 @@ function stretch(x, rate){
     return '<span class="seg">'+b('played','Notes',sheetView!=='pitch')+b('pitch','Pitch',sheetView==='pitch')+'</span>';
   }
   const keyLabel=k=>k ? k.name.replace('b','♭')+' major' : '';
+  $('notelist').addEventListener('change',e=>{ if(e.target.id==='cmpSel'){ compareId=e.target.value===''?null:+e.target.value; renderSheet(); } });
   $('sheetMeta').addEventListener('click',e=>{ const b=e.target.closest('button[data-view]'); if(b){ sheetView=b.dataset.view; renderSheet(); } });
   // Use the room there is: on wider screens draw the music larger (easier to read on a stand)
   // and fit more bars on a line. The SVG scales to the card, so a narrower staff = bigger notes.
@@ -1919,7 +1962,8 @@ function stretch(x, rate){
     const g=cv.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
     const r = t.target ? judge(alignTarget(t.target.notes, t.notes, t.target.hasOct), keyOf(t.target.notes)) : null;
     const rc=m=>refCents(m,t.key)/100;   // where each note should sit under the chosen intonation
-    const ms=t.notes.map(n=>n.midi).concat(r?r.items.map(i=>i.midi):[]);
+    const cmp0=compareId!==null ? takes.find(k=>k.id===compareId && k!==t && k.notes && k.notes.length) : null;
+    const ms=t.notes.map(n=>n.midi).concat(r?r.items.map(i=>i.midi):[], cmp0?cmp0.notes.map(n=>n.midi):[]);
     let lo=Math.min(...ms)-1.5, hi=Math.max(...ms)+1.5; if(hi-lo<6){ const c=(hi+lo)/2; lo=c-3; hi=c+3; }
     const y=m=>PT+(hi-m)/(hi-lo)*(H-PT-PB), x=s=>PL+s/dur*(W-PL-8);
     hl={take:t, pitchX:x, dur};
@@ -1937,6 +1981,17 @@ function stretch(x, rate){
     if(r){ g.setLineDash([4,4]); g.lineWidth=2;
       r.items.forEach(it=>{ if(!it.played) return; g.strokeStyle={ok:C.ok,tune:C.tune,wrong:C.bad}[it.status]; g.beginPath(); const ty=y(it.midi+rc(it.midi)); g.moveTo(x(it.played.t0),ty); g.lineTo(x(it.played.t1),ty); g.stroke(); });
       g.setLineDash([]); }
+    // another take, for comparison: its pitch line in grey, lined up at the first note
+    const ct=compareId!==null ? takes.find(k=>k.id===compareId && k!==t && k.notes && k.notes.length) : null;
+    if(ct){
+      const cc=ct.notes.curve, shift=ct.notes[0].t0-t.notes[0].t0;
+      g.save(); g.beginPath(); g.rect(PL,PT-4,W-PL,H-PT-PB+8); g.clip();
+      g.strokeStyle=C.muted; g.globalAlpha=.55; g.lineWidth=1.6; g.lineCap='round';
+      for(let f=1; f<cc.p.length; f++){ const a=cc.p[f-1], b=cc.p[f]; if(isNaN(a)||isNaN(b)||Math.abs(a-b)>0.7) continue;
+        const s0=cc.start+(f-1)*cc.dt-shift, s1=s0+cc.dt; if(s1<0 || s0>dur) continue;
+        g.beginPath(); g.moveTo(x(s0),y(a)); g.lineTo(x(s1),y(b)); g.stroke(); }
+      g.restore(); g.globalAlpha=1;
+    }
     // the pitch line, coloured by how close it is to the nearest note
     g.save(); g.beginPath(); g.rect(PL,PT-4,W-PL,H-PT-PB+8); g.clip();
     g.lineWidth=2.2; g.lineCap='round';
@@ -1954,7 +2009,20 @@ function stretch(x, rate){
     const lean = mean>5?', leaning sharp' : mean<-5?', leaning flat' : '';
     const dot=(c,txt)=>'<span><i style="background:'+c+'"></i>'+txt+'</span>';
     t.lastSummary='On average '+Math.round(mabs)+' cents from the note'+lean;
-    $('notelist').innerHTML='<div class="score"><strong>'+t.lastSummary+'</strong></div><div class="score">'+dot(C.ok,'within 10 cents')+dot(C.tune,'10–25')+dot(C.bad,'more')+'</div>'+SHARE;
+    // vibrato and bow
+    const so=soundOf(t.notes), sitems=[];
+    if(so && so.long){
+      if(so.vib) sitems.push(item(so.vib.cv<0.3?'ok':'tune','<b>Vibrato</b> '+so.vib.rate.toFixed(1)+' Hz, ±'+Math.round(so.vib.width)+' cents <small>'+so.vib.n+' of '+so.long+' long notes'+(so.vib.cv<0.3?', even':', uneven')+'</small>'));
+      else sitems.push(item('miss','<b>No vibrato</b> <small>on the '+so.long+' long note'+(so.long>1?'s':'')+'</small>'));
+      if(so.bow) sitems.push(so.bow.uneven.length ? item('tune','<b>Uneven sound</b> '+so.bow.uneven.slice(0,4).map(i=>nm(t.notes[i].midi,t.key,'tune')).join(', '))
+        : item('ok','<b>Steady bow</b>'));
+    }
+    const others=takes.filter(k=>k!==t && k.notes && k.notes.length);
+    const cmpSel = others.length ? '<label class="cmp">Compare with <select id="cmpSel"><option value="">none</option>'
+      +others.map(k=>'<option value="'+k.id+'"'+(k.id===compareId?' selected':'')+'>Take '+k.id+'</option>').join('')+'</select>'
+      +(ct?' <span class="cmpkey"><i></i>Take '+ct.id+'</span>':'')+'</label>' : '';
+    $('notelist').innerHTML='<div class="score"><strong>'+t.lastSummary+'</strong></div><div class="score">'+dot(C.ok,'within 10 cents')+dot(C.tune,'10–25')+dot(C.bad,'more')+'</div>'
+      +fbBox(sitems)+cmpSel+'<div>'+SHARE+'</div>';
     makeShareImage();
   }
 
