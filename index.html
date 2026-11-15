@@ -179,6 +179,13 @@ details.settings[open] > summary{box-shadow:var(--shadow)}
 .tpanel input{width:100%; font:inherit; font-size:1rem; padding:10px 12px; border-radius:10px; border:1px solid var(--line2);
   background:var(--surface); color:var(--ink); letter-spacing:.01em}
 .tpanel .btns{display:flex; gap:8px; margin:12px 0 10px}
+.gen{border-top:1px solid var(--line); padding-top:10px; margin-bottom:10px}
+.genlab{font-size:.7rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:8px}
+.genrow{display:grid; grid-template-columns:1fr 1.9fr 1fr; gap:6px}
+.genrow button{grid-column:1 / -1}
+.genrow select,.genrow button{font:inherit; font-size:.86rem; height:36px; padding:0 8px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink)}
+.genrow select{min-width:0}
+.genrow button{font-weight:600; padding:0 14px}
 .tpanel .btns button{height:38px; padding:0 16px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); font-weight:600; font-size:.9rem}
 .tpanel .btns .primary{background:var(--ink); border-color:var(--ink); color:var(--bg)}
 .tpanel .perr{color:var(--rec); font-size:.9rem; min-height:1.2em; margin-bottom:6px}
@@ -287,6 +294,8 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           </section>
           <section class="sgrp" id="grpPitch" data-dock>
           <div class="sgroup">Pitch</div>
+          <div class="set"><label for="instr">Instrument</label>
+            <select id="instr"><option value="violin">Violin</option><option value="viola">Viola</option><option value="cello">Cello</option></select></div>
           <div class="set"><label for="tuning">Tuning</label>
             <select id="tuning"><option value="438">A = 438</option><option value="439">A = 439</option><option value="440" selected>A = 440</option><option value="441">A = 441</option><option value="442">A = 442</option><option value="443">A = 443</option><option value="444">A = 444</option><option value="445">A = 445</option></select></div>
           <div class="set"><label for="inton">Judge against</label>
@@ -298,6 +307,8 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
               <option value="auto">Automatic</option>
               <option value="treble">Treble</option>
               <option value="bass">Bass</option>
+              <option value="alto">Alto</option>
+              <option value="tenor">Tenor</option>
               <option value="guitar">Guitar</option>
             </select></div>
           </section>
@@ -336,6 +347,15 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
         <input id="targetName" placeholder="Name, to save it" autocomplete="off" enterkeyhint="done">
         <div class="btns"><button class="primary" id="targetUse">Use</button><button id="targetSave">Save</button><button id="targetClear">Clear</button></div>
         <div class="perr" id="targetErr"></div>
+        <div class="gen">
+          <div class="genlab">Scale or arpeggio</div>
+          <div class="genrow">
+            <select id="genKey" aria-label="Key"><option value="0">C</option><option value="1">C♯/D♭</option><option value="2">D</option><option value="3">E♭</option><option value="4">E</option><option value="5">F</option><option value="6">F♯</option><option value="7" selected>G</option><option value="8">A♭/G♯</option><option value="9">A</option><option value="10">B♭</option><option value="11">B</option></select>
+            <select id="genType" aria-label="Type"><option value="major">Major</option><option value="natural">Natural minor</option><option value="harmonic">Harmonic minor</option><option value="melodic">Melodic minor</option><option value="arpMajor">Major arpeggio</option><option value="arpMinor">Minor arpeggio</option><option value="thirds">Broken thirds</option></select>
+            <select id="genOct" aria-label="Octaves"><option value="1">1 oct</option><option value="2" selected>2 oct</option><option value="3">3 oct</option></select>
+            <button id="genGo">Fill in</button>
+          </div>
+        </div>
         <div class="saved" id="savedList"></div>
       </div>
     </div>
@@ -682,7 +702,7 @@ function toAbc(ev,bpm,mode,barsPerLine,key,beats,map){
   const BAR=beats*4, VALID=[16,12,8,6,4,3,2,1];
   const shift = mode==='guitar'?12:0;
   let clef='treble';
-  if(mode==='bass') clef='bass';
+  if(mode==='bass' || mode==='alto' || mode==='tenor') clef=mode;
   else if(mode==='auto' && ev.length){ const ms=ev.map(e=>e.midi).sort((a,b)=>a-b); if(ms[ms.length>>1]<57) clef='bass'; }
   let body='', pos=0, bars=0, acc={};
   const pitchStr=m=>{
@@ -737,6 +757,50 @@ function toAbc(ev,bpm,mode,barsPerLine,key,beats,map){
   if(pos%BAR) segment(BAR-(pos%BAR),null);
   body=body.trim().replace(/\|\s*$/,'')+'|]';
   return `X:1\n${stretch?'%%stretchlast 1\n':''}M:${beats}/4\nL:1/16\nQ:1/4=${bpm}\nK:${key.name} clef=${clef}\n${body}\n`;
+}
+
+// ---- Scales and arpeggios, spelled from the key (A harmonic minor has G#, D harmonic minor C#) ----
+const LETTERS='CDEFGAB', NAT=[0,2,4,5,7,9,11];
+const SCALE_STEPS={ major:[0,2,4,5,7,9,11], natural:[0,2,3,5,7,8,10], harmonic:[0,2,3,5,7,8,11], melodic:[0,2,3,5,7,9,11] };
+const MAJ_TONIC=['C','Db','D','Eb','E','F','F#','G','Ab','A','Bb','B'], MIN_TONIC=['C','C#','D','Eb','E','F','F#','G','G#','A','Bb','B'];
+// type: major | natural | harmonic | melodic | arpMajor | arpMinor | thirds ; returns [{midi, name}] up and down
+function makeScale(pc, type, octaves, low){
+  const minor = /natural|harmonic|melodic|arpMinor/.test(type);
+  const tn=(minor?MIN_TONIC:MAJ_TONIC)[pc], L0=LETTERS.indexOf(tn[0]);
+  let t=pc; while(t<low) t+=12;                                    // lowest playable tonic
+  const steps = type==='arpMajor'||type==='thirds' ? SCALE_STEPS.major : type==='arpMinor' ? SCALE_STEPS.natural : SCALE_STEPS[type];
+  const down = type==='melodic' ? SCALE_STEPS.natural : steps;
+  const note=(deg,st)=>{ const o=Math.floor(deg/7), d=((deg%7)+7)%7, midi=t+12*o+st[d], L=(L0+d)%7;
+    const nat=NAT[L], oct=Math.round((midi-nat)/12)-1;
+    const acc=midi-((oct+1)*12+nat); return {midi, name:LETTERS[L]+(acc>0?'#'.repeat(acc):acc<0?'b'.repeat(-acc):'')+oct}; };
+  const top=7*octaves, seq=[];
+  if(type==='arpMajor'||type==='arpMinor'){
+    for(let d=0; d<=top; d++) if(d%7===0||d%7===2||d%7===4) seq.push(note(d,steps));
+    for(let d=top-1; d>=0; d--) if(d%7===0||d%7===2||d%7===4) seq.push(note(d,steps));
+  } else if(type==='thirds'){
+    // C E D F ... B D C, then down A B G ... D B C (the dip below the tonic only if it is playable)
+    for(let d=0; d<top; d++) seq.push(note(d,steps), note(d+2,steps));
+    seq.push(note(top,steps), note(top-2,steps));
+    for(let d=top-1; d>=1; d--){ if(d-2<0 && note(d-2,steps).midi<low) break; seq.push(note(d,steps), note(d-2,steps)); }
+    if(seq[seq.length-1].midi!==t) seq.push(note(0,steps));
+  } else {
+    for(let d=0; d<=top; d++) seq.push(note(d,steps));
+    for(let d=top-1; d>=0; d--) seq.push(note(d,down));
+  }
+  return seq;
+}
+// Notes as target text, octave numbers only where the nearest octave would be wrong: G3 A B C D ...
+// durs (beats per note, optional) are written as :n where they change.
+function compactTarget(seq, durs){
+  let prev=null, pd=null;
+  return seq.map((x,i)=>{
+    const base=x.name.replace(/-?\d+$/,'');
+    let tok=x.name;
+    if(prev!==null && parseTarget(prev+' '+base).notes[1]===x.midi) tok=base;
+    prev=x.name;
+    if(durs && durs[i]!==pd){ tok+=':'+(+durs[i].toFixed(3)); pd=durs[i]; }
+    return tok;
+  }).join(' ');
 }
 
 // ---- Target: notes typed by the player ----
@@ -963,6 +1027,23 @@ function stretch(x, rate){
   }
   function storeSaved(){ try{ localStorage.setItem('pib-exercises',JSON.stringify(saved)); }catch(e){} }
 
+  // ---- scale / arpeggio generator: fills in the notes (and a name, to save it) ----
+  const GEN_NAMES={major:'major scale', natural:'natural minor scale', harmonic:'harmonic minor scale', melodic:'melodic minor scale',
+    arpMajor:'major arpeggio', arpMinor:'minor arpeggio', thirds:'major scale in broken thirds'};
+  function generated(){
+    const pc=+$('genKey').value, type=$('genType').value, oct=+$('genOct').value;
+    const seq=makeScale(pc, type, oct, instr().strings[0]);
+    const tonic=(/natural|harmonic|melodic|arpMinor/.test(type)?MIN_TONIC:MAJ_TONIC)[pc].replace('#','♯').replace('b','♭');
+    return {seq, name: tonic+' '+GEN_NAMES[type]+', '+oct+' oct'};
+  }
+  $('genGo').onclick=e=>{ e.stopPropagation(); const g=generated();
+    $('targetIn').value=compactTarget(g.seq); $('targetName').value=g.name; $('targetErr').textContent=''; };
+
+  function renderStrings(){
+    $('tStrings').innerHTML=instr().strings.map(m=>'<span data-m="'+m+'">'+noteName(m,KEYS[0]).replace(/-?\d+$/,'')+'</span>').join('');
+  }
+  $('instr').addEventListener('change',()=>{ save(); renderStrings(); renderSheet(); refreshDrone(); });
+
   function openTarget(open){
     $('targetPanel').hidden=!open; $('targetBtn').setAttribute('aria-expanded',open);
     if(open){ $('settings').open=false; if(tunerOpen) openTuner(false); $('targetIn').value=target?target.str:''; renderSaved(); }
@@ -984,12 +1065,26 @@ function stretch(x, rate){
   // ---- tuning reference ----
   const tuningSel=$('tuning');
   const A4=()=>+tuningSel.value||440;
+  // instruments: open strings (low to high), lowest note, clef, drone octave
+  const INSTR={ violin:{strings:[55,62,69,76], clef:'treble', droneBase:48},
+                viola:{strings:[48,55,62,69], clef:'alto', droneBase:48},
+                cello:{strings:[36,43,50,57], clef:'bass', droneBase:36} };
+  const instr=()=>INSTR[$('instr').value]||INSTR.violin;
+  // the clef for some notes: the chosen one, or by instrument and range (viola alto, treble when high;
+  // cello bass, tenor when high; violin treble, bass for low voices/other instruments)
+  function clefFor(midis){
+    const c=clefSel.value; if(c!=='auto') return c;
+    const ms=midis.slice().sort((a,b)=>a-b), med=ms.length?ms[ms.length>>1]:60, i=$('instr').value;
+    if(i==='viola') return med>=74 ? 'treble' : 'alto';
+    if(i==='cello') return med>=62 ? 'tenor' : 'bass';
+    return 'auto';
+  }
   // the pitch a note should have under the chosen intonation, as cents from equal temperament
   const refCents=(m,key)=> $('inton').value==='pyth' ? pythOffset(m,key) : 0;
   const devC=(m,cents,key)=> Math.round(cents-refCents(m,key));
   // The open strings are tuned in pure fifths from A, whatever the judging setting:
   // with A=440, E = 660 Hz (+2.0 cents), D = 293.3 Hz (-2.0), G = 195.6 Hz (-3.9).
-  const OPEN_PC=[7,2,9,4];   // G D A E (any octave)
+  const openPC=()=>instr().strings.map(m=>m%12);   // the open strings' notes, any octave
   const stringCents=m=> pythOffset(m, KEYS[0]);
   // judge a target alignment under the chosen intonation (alignTarget itself uses equal temperament)
   function judge(r, key){
@@ -1028,7 +1123,7 @@ function stretch(x, rate){
     document.querySelectorAll('#tStrings span').forEach(s=>s.className='');
     if(m===null){ $('tNote').innerHTML='–'; $('tCents').textContent='Play a note'; needle.style.transform='translateX(0)'; needle.classList.remove('good'); needle.style.opacity=.3; return; }
     const key = target ? keyOf(target.notes) : (shownTake && shownTake.key) || KEYS[0];
-    const r=Math.round(m), open=OPEN_PC.includes(((r%12)+12)%12);
+    const r=Math.round(m), open=openPC().includes(((r%12)+12)%12);
     const c=Math.round((m-r)*100-(open ? stringCents(r) : refCents(r,key))), name=noteName(r, open ? KEYS[0] : key);
     const L=name.replace(/-?\d+$/,''), o=name.slice(L.length);
     $('tNote').innerHTML=L+'<small>'+o+'</small>';
@@ -1088,9 +1183,9 @@ function stretch(x, rate){
   // ---- drone ----
   let drone=null;
   function droneMidi(){
-    const v=$('droneNote').value; if(v!=='auto') return 48+(+v);
+    const v=$('droneNote').value, base=instr().droneBase; if(v!=='auto') return base+(+v);
     const k = target ? keyOf(target.notes) : (shownTake && shownTake.key) ? shownTake.key : KEYS[1];
-    return 48+k.pc;
+    return base+k.pc;
   }
   function startDrone(){
     ensureAC(); ac.resume();
@@ -1112,13 +1207,13 @@ function stretch(x, rate){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
     if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
       if(s.manualBpm) bpm.value=s.manualBpm; if(typeof s.autoBpm==='boolean') autoBpm.checked=s.autoBpm; halfSpeed=!!s.half;
       if(s.fb) for(const k in fb) if(typeof s.fb[k]==='boolean') fb[k]=s.fb[k];
-      if(s.pedal) $('pedal').value=s.pedal; if(s.inton) $('inton').value=s.inton; }
+      if(s.pedal) $('pedal').value=s.pedal; if(s.inton) $('inton').value=s.inton; if(s.instr) $('instr').value=s.instr; }
   }catch(e){}
   $('bpb').addEventListener('change',()=>{ metro.bpb=+$('bpb').value; renderMetro(); save(); });
   [thr,sil,rep,clefSel,bpm,autoBpm].forEach(el=>el.addEventListener('change',save));
@@ -1485,7 +1580,7 @@ function stretch(x, rate){
     if(!t.metro && firstVal==='auto' && autoBpm.checked) bpm.value=t.bpm;
     const {tempo, beats, q, lens} = rhythmOf(t);
     const lay = sheetLayout(paper), map=[];
-    const abc = toAbc(q, tempo, clefSel.value, lay.bars, t.key, beats, map); lastAbc=abc;
+    const abc = toAbc(q, tempo, clefFor(q.map(e=>e.midi)), lay.bars, t.key, beats, map); lastAbc=abc;
     const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
     paper.innerHTML='';
     if(window.ABCJS){
@@ -1536,7 +1631,7 @@ function stretch(x, rate){
   }
   function drawStaff(ev, key, colors){
     const paper=$('paper'), lay=sheetLayout(paper), map=[];
-    let abc=toAbc(ev, 60, clefSel.value, lay.bars, key, 4, map).replace(/^Q:.*\n/m,''); lastAbc=abc;
+    let abc=toAbc(ev, 60, clefFor(ev.map(e=>e.midi)), lay.bars, key, 4, map).replace(/^Q:.*\n/m,''); lastAbc=abc;
     paper.innerHTML='';
     if(!window.ABCJS){ paper.innerHTML='<div class="sheet-empty">The notation library didn’t load. Check your connection and reload the page.</div>'; return []; }
     ABCJS.renderAbc(paper, abc, {responsive:'resize', add_classes:true, foregroundColor:css('--ink'), staffwidth:lay.staffwidth, paddingleft:0, paddingright:0, paddingtop:14});
@@ -1930,7 +2025,7 @@ function stretch(x, rate){
   if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost'))
     navigator.serviceWorker.register('./sw.js').catch(()=>{});
 
-  setState('idle'); pedalSync(); renderSheet(); renderMetro(); restoreTakes();
+  setState('idle'); pedalSync(); renderStrings(); renderSheet(); renderMetro(); restoreTakes();
   requestAnimationFrame(draw);
 })();
 </script>
