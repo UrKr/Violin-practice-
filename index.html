@@ -135,7 +135,7 @@ canvas{width:100%; height:34px; display:block; border-radius:8px; visibility:hid
 
 /* sheet */
 .sheet{background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:14px 14px 14px; margin-bottom:14px; box-shadow:var(--shadow)}
-.sheet-head{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:0 2px 8px; border-bottom:1px solid var(--line); margin-bottom:4px}
+.sheet-head{display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px 10px; padding:0 2px 8px; border-bottom:1px solid var(--line); margin-bottom:4px}
 .sheet-head h2{margin:0; font-size:.98rem; font-weight:650; letter-spacing:-.01em}
 .sheet-meta{color:var(--muted); font-size:.84rem; font-variant-numeric:tabular-nums}
 #paper{min-height:80px; overflow-x:auto}
@@ -221,6 +221,10 @@ details.settings[open] > summary{box-shadow:var(--shadow)}
 .zenbar button{height:34px; padding:0 12px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink); font-weight:600}
 body.zen .zenbar{display:flex}
 body.zen .sheet, body.zen .routine, body.zen #toast{display:none !important}
+.trend{display:flex; align-items:flex-end; gap:3px; height:44px; margin:8px 2px 2px; font-size:.78rem; color:var(--muted)}
+.trend span{align-self:center; margin-right:8px; white-space:nowrap}
+.trend i{display:block; width:14px; border-radius:3px 3px 0 0}
+.trend b{align-self:center; margin-left:8px; color:var(--ink); font-variant-numeric:tabular-nums}
 .genhint{color:var(--muted); font-size:.78rem; margin-top:6px}
 .ear-wait{text-align:center; padding:22px 8px 10px; color:var(--muted)}
 .ear-wait b{display:block; color:var(--ink); font-size:1.05rem; font-weight:600; margin-bottom:4px}
@@ -231,7 +235,7 @@ body.zen .sheet, body.zen .routine, body.zen #toast{display:none !important}
 .tpanel .btns .primary{background:var(--ink); border-color:var(--ink); color:var(--bg)}
 .tpanel .perr{color:var(--rec); font-size:.9rem; min-height:1.2em; margin-bottom:6px}
 .seg{display:inline-flex; background:var(--bg); border-radius:10px; padding:2px; gap:2px}
-.seg button{border:none; background:transparent; padding:5px 12px; border-radius:8px; font-size:.82rem; font-weight:500; color:var(--muted)}
+.seg button{border:none; background:transparent; padding:5px 12px; border-radius:8px; font-size:.82rem; font-weight:500; color:var(--muted); white-space:nowrap}
 .seg button[aria-pressed="true"]{background:var(--surface); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.12), 0 0 0 1px var(--line)}
 .score{display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:4px 4px 0; font-size:.9rem; color:var(--muted)}
 .score strong{color:var(--ink); font-size:1.05rem; font-weight:600}
@@ -2058,7 +2062,64 @@ function stretch(x, rate){
     return fbBox(items);
   }
   const beatsTxt=b=>{ const q=Math.max(1,Math.round(Math.abs(b)*4)); return ({1:'¼',2:'½',3:'¾',4:'1'}[q]||(q/4).toFixed(2).replace(/\.?0+$/,''))+' beat'; };
-  function targetFeedbackHTML(r, key, R, played){
+  // ---- several takes of the same target: the mistakes that keep coming back ----
+  const sameTargetTakes=tt=>takes.filter(k=>k.target && k.target.str===tt.str && k.notes && k.notes.length);
+  function summarize(tt){
+    const list=sameTargetTakes(tt).slice().reverse();          // oldest first
+    const key=keyOf(tt.notes), n=tt.notes.length;
+    const per=tt.notes.map(()=>({wrong:{}, nWrong:0, missed:0, cents:[], long:[], short:[], early:[], late:[]}));
+    const right=[]; let extra=0;
+    for(const t of list){
+      const r=judge(alignTarget(tt.notes, t.notes, tt.hasOct), key), R=fb.rhythm ? targetRhythm(t, r) : null;
+      r.items.forEach((it,i)=>{ const P=per[i];
+        if(it.status==='wrong'){ P.nWrong++; const nm=noteName(it.played.midi,key); P.wrong[nm]=(P.wrong[nm]||0)+1; }
+        else if(it.status==='missed') P.missed++;
+        else P.cents.push(it.cents); });
+      if(R) R.flags.forEach(f=>{ const P=per[f.i]; if(f.kind==='long'||f.kind==='short') P[f.kind].push(f.pct); else P[f.kind].push(f.beats); });
+      right.push(r.items.filter(it=>it.status==='ok'||(it.status==='tune'&&!fb.tune)).length);
+      extra+=r.extra;
+    }
+    const K=list.length, issues=[], noteIssue=tt.notes.map(()=>null);
+    const avg=a=>a.reduce((x,y)=>x+y,0)/a.length;
+    per.forEach((P,i)=>{
+      const nm='<b>Note '+(i+1)+'</b> '+nm2(tt.notes[i],key,'ink');
+      if(P.nWrong){ const [pl]=Object.entries(P.wrong).sort((a,b)=>b[1]-a[1])[0];
+        issues.push({i, c:'bad', w:3*P.nWrong/K, n:P.nWrong, html:nm+' played as <span class="c-bad">'+pl+'</span>'}); }
+      if(P.missed) issues.push({i, c:'miss', w:3*P.missed/K, n:P.missed, html:nm+' missed'});
+      // intonation: only when it's off in the same direction most of the time
+      if(fb.tune && P.cents.length>=2){
+        const m=avg(P.cents), off=P.cents.filter(c=>Math.abs(c)>=20 && Math.sign(c)===Math.sign(m)).length;
+        if(Math.abs(m)>=12 && off>=Math.max(2,K*0.4)) issues.push({i, c:'tune', w:1.5*off/K*Math.min(2,Math.abs(m)/20), n:off,
+          html:nm+' '+(m>0?'sharp':'flat')+', '+(m>0?'+':'−')+Math.round(Math.abs(m))+' on average'});
+      }
+      for(const [k,label] of [['long','held too long'],['short','cut short'],['early','early'],['late','late']]){
+        const a=P[k]; if(a.length>=Math.max(2,K*0.4))
+          issues.push({i, c:'bad', w:2*a.length/K, n:a.length, html:nm+' '+label+(k==='long'||k==='short' ? ', '+sgn(Math.round(avg(a)))+'%' : '')});
+      }
+    });
+    if(extra>=2) issues.push({i:-1, c:'ink', w:extra/K, n:extra, html:'<b>Extra notes</b> '+extra+' in all'});
+    issues.sort((a,b)=>b.w-a.w);
+    issues.forEach(x=>{ if(x.i>=0 && !noteIssue[x.i]) noteIssue[x.i]=x; });
+    return {K, list, issues, noteIssue, right, n, key};
+  }
+  const nm2=(m,key,c)=>'<span class="c-'+c+'">'+noteName(m,key)+'</span>';
+  function renderSummary(t){
+    const tt=t.target, S=summarize(tt);
+    $('sheetTitle').textContent='Last '+S.K+' takes'; $('sheetKey').textContent='';
+    $('firstnote').hidden=true; $('sheetMeta').innerHTML=segHTML(t);
+    const col={bad:css('--rec'), tune:css('--listen'), miss:css('--muted'), ink:css('--ink')};
+    // the target, each note coloured by its most important recurring problem (green: fine every time)
+    const ev=tt.notes.map((m,i)=>({midi:m, s:tSpan(tt,i)[0], e:tSpan(tt,i)[1], above: S.noteIssue[i] ? S.noteIssue[i].n+'/'+S.K : ''}));
+    hl=null;
+    drawStaff(ev, S.key, tt.notes.map((m,i)=>({color: S.noteIssue[i] ? col[S.noteIssue[i].c] : css('--ok')})), tBeats(tt));
+    const top=S.issues.slice(0,6);
+    const items = top.length ? top.map(x=>item(x.c, x.html+' <small>'+x.n+' of '+S.K+' takes</small>'))
+      : [item('ok','<b>No mistake keeps coming back</b> in these '+S.K+' takes')];
+    const trend='<div class="trend"><span>Right notes per take</span>'+S.right.map((v,i)=>'<i title="Take '+S.list[i].id+': '+v+' of '+S.n+'" style="height:'+Math.max(8,Math.round(100*v/S.n))+'%;background:'+(v===S.n?'var(--ok)':'var(--line2)')+'"></i>').join('')+'<b>'+S.right[S.right.length-1]+'/'+S.n+'</b></div>';
+    $('notelist').innerHTML=fbBox(items)+trend;
+  }
+
+  function targetFeedbackHTML(r, key, R, played, tt){
     if(!fb.text) return '';
     const items=[];
     if(R && R.flags.length){
@@ -2075,7 +2136,11 @@ function stretch(x, rate){
     if(r.extra) items.push(item('ink','<b>'+r.extra+' extra</b>'));
     if(fb.tune) items.push(...tuneItems(r.items.filter(it=>it.played && it.status!=='wrong').map(it=>({midi:it.midi, cents:it.cents})), key));
     if(fb.tune && played) items.push(...intervalItems(played, key));
-    return fbBox(items.slice(0,9));
+    if(tt && sameTargetTakes(tt).length>=3){
+      const S=summarize(tt), x=S.issues[0];
+      if(x) items.push(item(x.c, '<b>Most often</b> '+x.html.replace(/<b>|<\/b>/g,'')+' <small>'+x.n+' of '+S.K+' takes · see Summary</small>'));
+    }
+    return fbBox(items.slice(0,10));
   }
 
   function renderSheet(){
@@ -2090,7 +2155,8 @@ function stretch(x, rate){
     $('sheetTitle').textContent='Take '+t.id;
     notesFor(t);
     if(sheetView==='pitch' && t.notes && t.notes.length) return renderPitch(t);
-    if(t.target && t.notes && t.notes.length && sheetView==='result') return renderResult(t);
+    if(t.target && t.notes && t.notes.length && sheetView==='summary' && sameTargetTakes(t.target).length>=2) return renderSummary(t);
+    if(t.target && t.notes && t.notes.length && (sheetView==='result' || sheetView==='summary')) return renderResult(t);
     if(!t.notes){ paper.innerHTML='<div class="sheet-empty">Reading the notes…</div>'; return; }
     if(!t.notes.length){ meta.textContent=''; list.innerHTML='';
       paper.innerHTML='<div class="sheet-empty">No clear notes. Try single notes, a bit louder.</div>'; return; }
@@ -2126,7 +2192,9 @@ function stretch(x, rate){
   const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   function segHTML(t){
     const b=(v,label,on)=>'<button data-view="'+v+'" aria-pressed="'+on+'">'+label+'</button>';
-    if(t && t.target) return '<span class="seg">'+b('result','Target',sheetView==='result')+b('played','Played',sheetView==='played')+b('pitch','Pitch',sheetView==='pitch')+'</span>';
+    if(t && t.target){ const n=sameTargetTakes(t.target).length;
+      return '<span class="seg">'+b('result','Target',sheetView==='result')+b('played','Played',sheetView==='played')+b('pitch','Pitch',sheetView==='pitch')
+        +(n>=2?b('summary','Summary ('+n+')',sheetView==='summary'):'')+'</span>'; }
     return '<span class="seg">'+b('played','Notes',sheetView!=='pitch')+b('pitch','Pitch',sheetView==='pitch')+'</span>';
   }
   const keyLabel=k=>k ? k.name.replace('b','♭')+' major' : '';
@@ -2266,7 +2334,7 @@ function stretch(x, rate){
       if(cnt.missed) html+=dot(col.missed, cnt.missed+' missed');
       if(r.extra) html+=dot(css('--ink'), r.extra+' extra');
     }
-    $('notelist').innerHTML='<div class="score">'+html+'</div>'+targetFeedbackHTML(r, key, R, t.notes)+HEAR+SHARE;
+    $('notelist').innerHTML='<div class="score">'+html+'</div>'+targetFeedbackHTML(r, key, R, t.notes, tt)+HEAR+SHARE;
     t.lastSummary=(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+(cnt.tune?', '+cnt.tune+' out of tune':'')+(cnt.wrong?', '+cnt.wrong+' wrong':'')+(cnt.missed?', '+cnt.missed+' missed':'');
     makeShareImage();
   }

@@ -112,6 +112,11 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   note after 3 steady readings or a re-bow) and its cents under the judging setting. With target notes:
   'Next <note>' under the button, and with rhythm a length bar against the written length (tempo from
   the metronome, or the last take of that target). Hidden in Zen mode.
+- **Summary** (target takes, 'Summary (n)' tab from 2 takes of the same target; `summarize`): over the
+  last takes of that target (up to 10), recurring problems per note ranked by frequency x weight (wrong /
+  missed 3, rhythm 2, intonation 1.5 scaled by size and only when off the same way in 40%+ of takes),
+  the target staff coloured by each note's main problem with 'k/n' above, and right notes per take.
+  From the 3rd take the top one also shows in the normal feedback as 'Most often'.
 - **Routine** (notes panel): exercises in order, each with its own tempo (`pib-routine`); a bar above the
   sheet steps through them; the position and any tempo change (ladder or +/-) are remembered per exercise.
 
