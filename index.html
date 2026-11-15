@@ -165,7 +165,10 @@ canvas{width:100%; height:40px; display:block; border-radius:8px; visibility:hid
 .tuner .strings span.near{border-color:var(--ink); color:var(--ink)}
 .tuner .strings span.good{background:var(--ok); border-color:var(--ok); color:var(--bg)}
 /* pitch curve */
-#pitchWrap{overflow-x:auto; border-radius:8px; margin-top:4px}
+#pitchWrap{overflow-x:auto; border-radius:8px; margin-top:4px; position:relative}
+#playhead{position:absolute; top:0; height:220px; width:2px; margin-left:-1px; background:var(--play); pointer-events:none}
+.pb-hl{fill:var(--play); fill-opacity:.28}
+.notelist span.now{color:var(--bg); background:var(--play); border-radius:4px; padding:0 3px; margin:0 -3px}
 #pitchWrap canvas{display:block; height:220px; width:auto; visibility:visible; border-radius:0}
 .share{display:inline-flex; align-items:center; gap:6px; height:36px; padding:0 14px; border-radius:999px;
   border:1px solid var(--line); background:transparent; font-size:.88rem; font-weight:600; margin:8px 4px 2px}
@@ -272,7 +275,7 @@ canvas{width:100%; height:40px; display:block; border-radius:8px; visibility:hid
   <section class="sheet" id="sheet" aria-live="polite">
     <div class="sheet-head"><span class="left"><h2 id="sheetTitle"></h2><span class="sheet-meta" id="sheetKey"></span></span><span class="sheet-meta" id="sheetMeta"></span></div>
     <div id="paper"></div>
-    <div id="pitchWrap" hidden><canvas id="pitch"></canvas></div>
+    <div id="pitchWrap" hidden><canvas id="pitch"></canvas><div id="playhead" hidden></div></div>
     <div class="notelist" id="notelist"></div>
     <div class="firstnote" id="firstnote" hidden>
       <span class="lab">First note</span>
@@ -501,7 +504,9 @@ function guessKey(notes){
 function spell(m,key){ const [L,a]=(key&&key.flat?FLAT_SP:SHARP_SP)[m%12]; return {L,a,oct:Math.floor(m/12)-1}; }
 function noteName(m,key){ const {L,a,oct}=spell(m,key); return L+(a>0?'♯':a<0?'♭':'')+oct; }
 
-function toAbc(ev,bpm,mode,barsPerLine,key,beats){
+// `map`, if given, gets one entry per drawn note head (tied pieces included):
+// the index of the event it belongs to. Used to light up the note being played.
+function toAbc(ev,bpm,mode,barsPerLine,key,beats,map){
   key=key||KEYS[0]; beats=beats||4;
   const BAR=beats*4, VALID=[16,12,8,6,4,3,2,1];
   const shift = mode==='guitar'?12:0;
@@ -516,8 +521,9 @@ function toAbc(ev,bpm,mode,barsPerLine,key,beats){
     if(cur!==a){ pre = a>0?'^':a<0?'_':'='; acc[k]=a; }
     return pre+(oct>=5? L.toLowerCase()+"'".repeat(oct-5) : L+",".repeat(4-oct));
   };
-  let ann='';
+  let ann='', evIdx=-1;
   const piece=(len,midi,tie)=>{
+    if(map && midi!==null) map.push(evIdx);
     body += ann; ann='';
     body += (midi===null?'z':pitchStr(midi)) + (len>1?len:'') + (tie?'-':'');
     pos+=len;
@@ -543,7 +549,8 @@ function toAbc(ev,bpm,mode,barsPerLine,key,beats){
   if(ev.length){ const L=ev[ev.length-1], barEnd=Math.ceil((L.s+1)/BAR)*BAR, over=L.e-barEnd;
     if(over>0 && over<=(L.e-L.s)/2) L.e=barEnd; }
   const q=x=>x.replace(/"/g,"'");
-  for(const e of ev){ if(e.s>pos) segment(e.s-pos,null);
+  for(const [i,e] of ev.entries()){ if(e.s>pos) segment(e.s-pos,null);
+    evIdx=i;
     ann=(e.above?'"^'+q(e.above)+'"':'')+(e.below?'"_'+q(e.below)+'"':'');
     segment(e.e-e.s,e.midi); }
   if(pos%BAR) segment(BAR-(pos%BAR),null);
@@ -648,6 +655,9 @@ function stretch(x, rate){
   let level=0, history=[];
   let preroll=[], prerollLen=0, chunks=[], silentSince=null, recStart=0;
   let takes=[], takeCounter=0, currentSrc=null, shownTake=null, recAudioStart=0;
+  // what playback is doing right now ({take, when, offset, rate}), and what the sheet shows
+  // (so the note being played can be lit up): see updatePlayhead()
+  let playing=null, hl=null;
 
   // ---- metronome (visual only) ----
   const metro={on:false, bpm:72, bpb:4, t0:0};
@@ -1031,13 +1041,15 @@ function stretch(x, rate){
     const once=()=>{
       const s=ac.createBufferSource(); s.buffer=buf; s.connect(ac.destination);
       currentSrc=s;
-      const tm=take.metro;
+      const tm=take.metro, rate=(buf===take.buffer)?1:0.5;
+      let when=ac.currentTime, offset=0;
       if(!halfSpeed && metro.on && tm && tm.bpm===metro.bpm && tm.bpb===metro.bpb){
         // start on a downbeat, so the take sits on the beat just as it was played
         const bar=metro.bpb*beatLen(), delta=take.audioStart-take.barStartAbs, now=ac.currentTime;
         let k=Math.ceil((now+0.2-delta-metro.t0)/bar), nextBar=metro.t0+k*bar;
-        if(delta>=0) s.start(nextBar+delta); else s.start(nextBar,-delta);
+        if(delta>=0){ when=nextBar+delta; s.start(when); } else { when=nextBar; offset=-delta; s.start(when,offset); }
       } else s.start();
+      playing={take, when, offset, rate};
       s.onended=()=>{
         if(currentSrc!==s) return;
         left--;
@@ -1049,11 +1061,12 @@ function stretch(x, rate){
   }
 
   function stopPlayback(){
+    playing=null;
     if(currentSrc){ const s=currentSrc; currentSrc=null; try{s.stop()}catch(e){} }
   }
 
   async function afterPlayback(){
-    currentSrc=null;
+    currentSrc=null; playing=null;
     applyPending();
     if(!active){ setState('idle'); return; }
     setState('cooldown');
@@ -1108,6 +1121,7 @@ function stretch(x, rate){
     const paper=$('paper'), meta=$('sheetMeta'), list=$('notelist');
     const t=shownTake;
     $('pitchWrap').hidden=true; paper.hidden=false; $('sheetKey').textContent=''; lastPng=null;
+    hl=null; $('playhead').hidden=true;
     if(!t || !t.notes || !t.notes.length) $('firstnote').hidden=true;
     if(!t && target) return renderTargetOnly();
     if(!t){ $('sheetTitle').textContent=''; meta.textContent=''; list.innerHTML='';
@@ -1136,11 +1150,12 @@ function stretch(x, rate){
       if(autoBpm.checked){ bpm.value=t.bpm; }
     }
     const narrow = paper.clientWidth < 460;
-    const abc = toAbc(quantize(t.notes,exact||tempo,ref), tempo, clefSel.value, narrow?2:4, t.key, beats);
+    const map=[];
+    const abc = toAbc(quantize(t.notes,exact||tempo,ref), tempo, clefSel.value, narrow?2:4, t.key, beats, map);
     const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
     paper.innerHTML='';
     if(window.ABCJS){
-      ABCJS.renderAbc(paper, abc, {responsive:'resize', foregroundColor:ink, staffwidth: Math.max(280, paper.clientWidth-10), paddingleft:0, paddingright:0, paddingtop:4});
+      ABCJS.renderAbc(paper, abc, {responsive:'resize', add_classes:true, foregroundColor:ink, staffwidth: Math.max(280, paper.clientWidth-10), paddingleft:0, paddingright:0, paddingtop:4});
     } else paper.innerHTML='<div class="sheet-empty">The notation library didn’t load. Check your connection and reload the page.</div>';
     $('sheetKey').textContent = keyLabel(t.key);
     meta.innerHTML=segHTML(t);
@@ -1148,6 +1163,7 @@ function stretch(x, rate){
       const off=Math.abs(n.cents)>=20, tip=off?(n.cents>0?' sharp':' flat'):'';
       return `<span class="${off?(n.cents>0?'sharp':'flat'):''}" title="${n.cents>0?'+':''}${n.cents} cents${tip}">${noteName(n.midi,t.key)}${off?(n.cents>0?'↑':'↓'):''}</span>`;
     }).join(' ') + '<div>'+SHARE+'</div>';
+    hl={take:t, times:t.notes.map(n=>[n.t0,n.t1]), els:noteGroups(paper,map), spans:[...list.querySelectorAll(':scope > span')], cur:-1};
     makeShareImage();
   }
 
@@ -1161,11 +1177,17 @@ function stretch(x, rate){
   $('sheetMeta').addEventListener('click',e=>{ const b=e.target.closest('button[data-view]'); if(b){ sheetView=b.dataset.view; renderSheet(); } });
   window.addEventListener('resize',()=>{ if(sheetView==='pitch' && shownTake) renderSheet(); });
 
+  // The drawn note heads grouped by the event they belong to (a tied note has several).
+  function noteGroups(paper, map){
+    const out=[];
+    paper.querySelectorAll('.abcjs-note').forEach((el,i)=>{ const k=map[i]; if(k===undefined) return; (out[k]=out[k]||[]).push(el); });
+    return out;
+  }
   function drawStaff(ev, key, colors){
-    const paper=$('paper'), narrow=paper.clientWidth<460;
-    let abc=toAbc(ev, 60, clefSel.value, narrow?2:4, key, 4).replace(/^Q:.*\n/m,'');
+    const paper=$('paper'), narrow=paper.clientWidth<460, map=[];
+    let abc=toAbc(ev, 60, clefSel.value, narrow?2:4, key, 4, map).replace(/^Q:.*\n/m,'');
     paper.innerHTML='';
-    if(!window.ABCJS){ paper.innerHTML='<div class="sheet-empty">The notation library didn’t load. Check your connection and reload the page.</div>'; return; }
+    if(!window.ABCJS){ paper.innerHTML='<div class="sheet-empty">The notation library didn’t load. Check your connection and reload the page.</div>'; return []; }
     ABCJS.renderAbc(paper, abc, {responsive:'resize', add_classes:true, foregroundColor:css('--ink'), staffwidth:Math.max(280,paper.clientWidth-10), paddingleft:0, paddingright:0, paddingtop:4});
     if(colors){
       paper.querySelectorAll('.abcjs-note').forEach((g,i)=>{
@@ -1174,6 +1196,7 @@ function stretch(x, rate){
         if(c.faint) g.style.opacity='.4';
       });
     }
+    return noteGroups(paper, map);
   }
   function targetEvents(tt, shift=0){ return tt.notes.map((m,i)=>({midi:m+shift, s:i*4, e:i*4+4})); }
   function keyOf(midis){ return guessKey(midis.map((m,i)=>({midi:m,t0:i,t1:i+1}))); }
@@ -1197,7 +1220,7 @@ function stretch(x, rate){
       [o1,o2,lfo].forEach(o=>{ o.start(t); o.stop(t+d+0.05); });
     });
     const rendered=await oc.startRendering();
-    playTake({id:'target', buffer:rendered}, 1);
+    playTake({id:'target', buffer:rendered, beat}, 1);
   }
   $('sheet').addEventListener('click',e=>{ const b=e.target.closest('.hear'); if(!b) return;
     const t=shownTake && shownTake.target && sheetView==='result' ? shownTake.target : target;
@@ -1211,7 +1234,7 @@ function stretch(x, rate){
   function renderTargetOnly(){
     $('sheetTitle').textContent='Notes to play'; $('sheetMeta').textContent=''; $('firstnote').hidden=true;
     const key=keyOf(target.notes);
-    drawStaff(targetEvents(target), key, null);
+    hl={take:null, target:true, els:drawStaff(targetEvents(target), key, null), cur:-1};
     $('notelist').innerHTML=HEAR+progressHTML(target.str);
   }
 
@@ -1224,7 +1247,8 @@ function stretch(x, rate){
       above: it.status==='tune' ? (it.cents>0?'↑':'↓') : '',
       below: it.status==='wrong' ? noteName(it.played.midi,key) : ''}));
     const col={ok:css('--ok'), tune:css('--listen'), wrong:css('--rec'), missed:css('--muted')};
-    drawStaff(ev, key, r.items.map(it=>({color:col[it.status], faint:it.status==='missed'})));
+    const els=drawStaff(ev, key, r.items.map(it=>({color:col[it.status], faint:it.status==='missed'})));
+    hl={take:t, target:true, times:r.items.map(it=>it.played?[it.played.t0,it.played.t1]:null), els, cur:-1};
     const cnt={ok:0,tune:0,wrong:0,missed:0}; r.items.forEach(it=>cnt[it.status]++);
     const right=cnt.ok+cnt.tune, n=r.items.length;
     const dot=(c,txt)=>'<span><i style="background:'+c+'"></i>'+txt+'</span>';
@@ -1249,6 +1273,7 @@ function stretch(x, rate){
     const ms=t.notes.map(n=>n.midi).concat(r?r.items.map(i=>i.midi):[]);
     let lo=Math.min(...ms)-1.5, hi=Math.max(...ms)+1.5; if(hi-lo<6){ const c=(hi+lo)/2; lo=c-3; hi=c+3; }
     const y=m=>PT+(hi-m)/(hi-lo)*(H-PT-PB), x=s=>PL+s/dur*(W-PL-8);
+    hl={take:t, pitchX:x, dur};
     const C={line:css('--line'), muted:css('--muted'), ink:css('--ink'), ok:css('--ok'), tune:css('--listen'), bad:css('--rec')};
     g.font='11px system-ui, sans-serif'; g.textBaseline='middle';
     for(let m=Math.ceil(lo); m<=Math.floor(hi); m++){
@@ -1293,6 +1318,7 @@ function stretch(x, rate){
     const svg=$('paper').querySelector('svg'); if(!svg) return;
     const ink=css('--ink'), c=svg.cloneNode(true), vb=(svg.getAttribute('viewBox')||'0 0 700 200').split(/[ ,]+/).map(Number);
     c.setAttribute('width',vb[2]); c.setAttribute('height',vb[3]); c.setAttribute('xmlns','http://www.w3.org/2000/svg');
+    c.querySelectorAll('.pb-hl').forEach(el=>el.remove());
     c.querySelectorAll('*').forEach(el=>{ ['fill','stroke'].forEach(a=>{ if(el.getAttribute(a)===ink) el.setAttribute(a,'#111'); }); });
     const img=new Image(), S=2;
     img.onload=()=>{ const cv=document.createElement('canvas'); cv.width=vb[2]*S+40; cv.height=vb[3]*S+40;
@@ -1323,7 +1349,49 @@ function stretch(x, rate){
   $('sheet').addEventListener('click',e=>{ if(e.target.closest('.share') && shownTake) shareTake(shownTake); });
 
   // meter drawing
+  // ---- show where playback is: light up the note being played ----
+  function playPos(){   // seconds into the take (or the "Hear it" tune) that you hear right now
+    if(!playing || !ac) return null;
+    const heard=ac.currentTime-(ac.outputLatency||ac.baseLatency||0);
+    if(heard<playing.when) return null;
+    return (playing.offset+(heard-playing.when))*playing.rate;
+  }
+  function markNote(idx){
+    if(hl.cur===idx) return;
+    document.querySelectorAll('#paper .pb-hl').forEach(el=>el.remove());
+    if(hl.spans){ if(hl.spans[hl.cur]) hl.spans[hl.cur].classList.remove('now'); if(hl.spans[idx]) hl.spans[idx].classList.add('now'); }
+    hl.cur=idx;
+    for(const el of (hl.els[idx]||[])){
+      let b; try{ b=el.getBBox(); }catch(e){ continue; }
+      const r=document.createElementNS('http://www.w3.org/2000/svg','rect'), px=4, py=5;
+      r.setAttribute('class','pb-hl'); r.setAttribute('rx',4);
+      r.setAttribute('x',b.x-px); r.setAttribute('y',b.y-py); r.setAttribute('width',b.width+2*px); r.setAttribute('height',b.height+2*py);
+      el.parentNode.insertBefore(r,el);   // behind the note, in the same coordinates
+    }
+  }
+  function updatePlayhead(){
+    if(!hl) return;
+    const pos=playPos(), isTune=playing && playing.take.id==='target';
+    if(hl.pitchX){
+      const ph=$('playhead'), on=pos!==null && !isTune && playing.take===hl.take && pos<=hl.dur;
+      if(ph.hidden!==!on) ph.hidden=!on;
+      if(on){ const x=hl.pitchX(pos), w=$('pitchWrap'); ph.style.left=x+'px';
+        if(x<w.scrollLeft+20 || x>w.scrollLeft+w.clientWidth-20) w.scrollLeft=Math.max(0,x-w.clientWidth*0.25); }
+      return;
+    }
+    let idx=-1;
+    if(pos!==null && isTune){
+      if(hl.target){ const i=Math.floor(pos/playing.take.beat); if(i<hl.els.length) idx=i; }
+    } else if(pos!==null && hl.times && playing.take===hl.take){
+      // the last note that has started; let it go a moment after it ends
+      for(let i=0;i<hl.times.length;i++){ const tt=hl.times[i]; if(tt && tt[0]<=pos+0.03) idx=i; }
+      if(idx>=0 && pos>hl.times[idx][1]+0.25) idx=-1;
+    }
+    markNote(idx);
+  }
+
   function draw(){
+    updatePlayhead();
     const dpr=window.devicePixelRatio||1, w=canvas.clientWidth, h=canvas.clientHeight;
     if(canvas.width!==w*dpr||canvas.height!==h*dpr){ canvas.width=w*dpr; canvas.height=h*dpr; }
     const cs=getComputedStyle(document.documentElement);
