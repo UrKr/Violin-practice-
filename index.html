@@ -325,6 +325,8 @@ function detectNotes(data, sr, A4){
   const tauMin=Math.floor(fs/1400), tauMax=Math.ceil(fs/55);
   const frames=Math.max(0,Math.floor((n-W-tauMax)/hop));
   const rms=new Float32Array(frames), pitch=new Array(frames).fill(null);
+  // how much better the signal repeats at 2x / 3x the period found (raw difference, unclear frames only)
+  const sub2=new Float32Array(frames).fill(1), sub3=new Float32Array(frames).fill(1);
   const d=new Float32Array(tauMax+1), cm=new Float32Array(tauMax+1);
   for(let f=0;f<frames;f++){
     const st=f*hop; let e=0;
@@ -343,6 +345,17 @@ function detectNotes(data, sr, A4){
     for(let t=tauMin;t<tauMax;t++){ if(cm[t]<0.15){ while(t+1<tauMax && cm[t+1]<cm[t]) t++; tau=t; break; } }
     if(tau<0){ let b=tauMin; for(let t=tauMin;t<tauMax;t++) if(cm[t]<cm[b]) b=t; if(cm[b]<0.3) tau=b; }
     if(tau<0) continue;
+    // Open strings (the violin's G above all) have a weak fundamental and a strong 2nd harmonic,
+    // so the first dip under the threshold can be an octave (or octave+fifth) too high. Note how
+    // much better the signal repeats at 2x and 3x the period; whole notes are judged on it below.
+    // Raw difference, since the normalised one favours long periods even for true notes.
+    if(cm[tau]>0.04 && d[tau]>0){
+      for(const [k,arr] of [[2,sub2],[3,sub3]]){
+        const c0=k*tau; if(c0+3>=tauMax) break;
+        let m=c0-2; for(let t=c0-2;t<=c0+2;t++) if(d[t]<d[m]) m=t;
+        arr[f]=d[m]/d[tau];
+      }
+    }
     const a=cm[tau-1], b=cm[tau], c=cm[tau+1], den=a-2*b+c;
     const tr = den!==0 ? tau+0.5*(a-c)/den : tau;
     const hz=fs/tr, m=69+12*Math.log2(hz/A4);
@@ -385,6 +398,17 @@ function detectNotes(data, sr, A4){
     }
     notes.push({midi:u.m,a,b:u.b});
   }
+  // A note that, over most of its length, repeats far better (20x) at twice its period is really an
+  // octave lower: the open-G "phantom octave". Same for three times the period (an octave and a fifth).
+  // Judged on the whole note, because single frames of true notes can look like this too.
+  const med=a=>{ a.sort((x,y)=>x-y); return a[a.length>>1]; };
+  for(const o of notes){
+    const s2=[], s3=[]; for(let f=o.a;f<=o.b;f++) if(r[f]===o.midi){ s2.push(sub2[f]); s3.push(sub3[f]); }
+    if(s2.length<5) continue;
+    const drop = med(s2)<0.05 ? 12 : med(s3)<0.05 ? 19 : 0;
+    if(drop){ for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && r[f]===o.midi) pitch[f]-=drop; o.midi-=drop; }
+  }
+  for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; } }
   // clean up blips: very short notes, and short octave jumps, get absorbed by a neighbour
   for(let changed=true; changed;){
     changed=false;
@@ -397,8 +421,13 @@ function detectNotes(data, sr, A4){
       const first = i===0 && q && len<15 && nearQ;     // a scratchy start before the first real note
       if(len<10 || first || (octave && len<30)){
         const touchP=p && o.a-p.b<=30, touchQ=q && q.a-o.b<=30;
-        if(touchP && (!touchQ || (p.b-p.a)>=(q.b-q.a))) p.b=o.b;
+        // an octave slip belongs to the note it's an octave of (the start of a G4 heard as G5 is
+        // part of the G4, not of the F# before it); otherwise the longer neighbour takes it
+        const hp=octave && harm(p) && nearP, hq=octave && harm(q) && nearQ;
+        const toP = hp!==hq ? hp : (touchP && (!touchQ || (p.b-p.a)>=(q.b-q.a)));
+        if(toP && touchP) p.b=o.b;
         else if(touchQ) q.a=o.a;
+        else if(touchP) p.b=o.b;
         notes.splice(i,1); changed=true; break;
       }
     }
