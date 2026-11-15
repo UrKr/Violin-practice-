@@ -68,15 +68,18 @@ const cases=[
   ['double stop D4+A4', [q(62,2*beat,{two:69}),q(64,beat)], 'D4 E4|A4 E4|D4 A4 E4|A4 D4 E4', 0, 'known'],
   ['first note held long (4 beats)', [q(55,4*beat,{swell:1}),q(57,beat),q(59,beat)], 'G3 A3 B3'],
   ['grace-note-like quick neighbour (80 ms)', [q(64,beat),q(66,0.08),q(64,beat)], 'E4 E4'],
+  // from a report: a high (Pythagorean-ish) leading note, ~half a semitone sharp, read partly as the
+  // note above; its first piece went to the note before, so the lengths looked uneven
+  ['even A scale, G# 45 sharp, vibrato crossing', [57,59,61,62,64,66,68,69].map(m=>q(m,1.25,{c:m===68?45:m===66?30:0,vc:m===68?12:0,vr:5,swell:1})), 'A3 B3 C♯4 D4 E4 F♯4 G♯4 A4', 0, '', 'A,4 B,4 C4 D4 | E4 F4 G4 A4'],
 ];
 let fails=0;
 let known=0;
-for(const [name,segs,want,detail=0,flag] of cases){
+for(const [name,segs,want,detail=0,flag,wantAbc] of cases){
   const x=synth(segs), notes=detectNotes(x,SR,440,detail), key=guessKey(notes);
   const got=notes.map(n=>noteName(n.midi,key)).join(' ');
-  const ok=want.split('|').includes(got); if(!ok){ if(flag==='known') known++; else fails++; }
   let abc=''; try{ const bpm=guessTempo(notes); abc=toAbc(quantize(notes,bpm,undefined,detail),bpm,'auto',4,key,4).split('\n').slice(5).join(' ').trim()+'  ('+bpm+' bpm)'; }catch(e){ abc='ERR '+e.message; }
-  console.log((ok?'ok   ':flag==='known'?'known':'FAIL ')+name.padEnd(44)+got+(ok?'':'   (want '+want+')'));
+  const ok=want.split('|').includes(got) && (!wantAbc || abc.includes(wantAbc)); if(!ok){ if(flag==='known') known++; else fails++; }
+  console.log((ok?'ok   ':flag==='known'?'known':'FAIL ')+name.padEnd(44)+got+(ok?'':'   (want '+want+(wantAbc?' / sheet '+wantAbc+', got '+abc:'')+')'));
   if(process.argv.includes('--abc')) console.log('      '+abc);
 }
 console.log(`\n${cases.length-fails-known}/${cases.length} ok`+(known?`, ${known} known limitation`:'')+(fails?`, ${fails} FAILED`:''));

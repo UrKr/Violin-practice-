@@ -650,7 +650,12 @@ function detectNotes(data, sr, A4, detail=0){
         // an octave slip belongs to the note it's an octave of (the start of a G4 heard as G5 is
         // part of the G4, not of the F# before it); otherwise the longer neighbour takes it
         const hp=octave && harm(p) && nearP, hq=octave && harm(q) && nearQ;
-        const toP = hp!==hq ? hp : (touchP && (!touchQ || (p.b-p.a)>=(q.b-q.a)));
+        // otherwise: a piece that starts with a new attack is the start of the next note; else the
+        // neighbour closest in pitch takes it (a sharp G# read partly as A belongs to the G#, not to the
+        // F# before it); only then the longer one
+        const dp=touchP?Math.abs(p.midi-o.midi):99, dq=touchQ?Math.abs(q.midi-o.midi):99;
+        const toP = hp!==hq ? hp : (o.art && touchQ) ? false : (touchP && touchQ && dp!==dq) ? dp<dq
+          : (touchP && (!touchQ || (p.b-p.a)>=(q.b-q.a)));
         if(toP && touchP) p.b=o.b;
         else if(touchQ){ q.a=o.a; q.art=q.art||o.art; }
         else if(touchP) p.b=o.b;
@@ -1910,22 +1915,26 @@ function stretch(x, rate){
 
   // Tempo, written notes and held-vs-written length of each note, as the sheet shows them.
   function rhythmOf(t){
-    let tempo, beats=4, ref, exact;
+    let tempo, beats=4, ref, exact, unfit=false;
     if(t.metro){
       tempo=t.metro.bpm; beats=t.metro.bpb;
       const six=60/tempo/4, BAR=beats*4;
       const first=Math.round((t.audioStart+t.notes[0].t0-t.metro.t0)/six);
       ref = t.metro.t0 + Math.floor(first/BAR)*BAR*six - t.audioStart;
-    } else if(firstVal!=='auto'){
+    } else if(firstVal!=='auto' && (()=>{ const f=tempoFromFirst(t.notes, firstVal); return f && f.bpm>30 && f.bpm<240; })()){
       const f=tempoFromFirst(t.notes, firstVal);
       exact=f.bpm; tempo=Math.round(f.bpm); ref=f.ref;
-    } else tempo = autoBpm.checked ? t.bpm : +bpm.value;
+    } else {
+      // (a 'first note' length that would mean a tempo under 30 or over 240 doesn't fit this take: auto)
+      unfit = firstVal!=='auto';
+      tempo = autoBpm.checked || unfit ? t.bpm : +bpm.value;
+    }
     const q=quantize(t.notes,exact||tempo,ref,t.detail||0), six=60/(exact||tempo)/4;
     // A note runs until the next one starts, unless the sheet has a rest after it; then until its
     // sound stops. The last note is cut at the barline on the sheet, so its length gets no verdict.
     const lens=q.map((e,i)=>{ const n=t.notes[i], legato=i<q.length-1 && e.e===q[i+1].s;
       return {w:(e.e-e.s)*six, a:(legato ? t.notes[i+1].t0 : n.t1)-n.t0, free:i===q.length-1}; });
-    return {tempo, beats, q, lens};
+    return {tempo, beats, q, lens, unfit};
   }
 
   // ---- written feedback under the sheet: the few things worth working on ----
@@ -2009,7 +2018,7 @@ function stretch(x, rate){
     fn.hidden = !!t.metro;
     fn.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.v==String(firstVal))));
     if(!t.metro && firstVal==='auto' && autoBpm.checked) bpm.value=t.bpm;
-    const {tempo, beats, q, lens} = rhythmOf(t);
+    const {tempo, beats, q, lens, unfit} = rhythmOf(t);
     const lay = sheetLayout(paper), map=[];
     const abc = toAbc(q, tempo, clefFor(q.map(e=>e.midi)), lay.bars, t.key, beats, map); lastAbc=abc;
     const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
@@ -2017,7 +2026,7 @@ function stretch(x, rate){
     if(window.ABCJS){
       ABCJS.renderAbc(paper, abc.replace(/^Q:.*\n/m,''), {responsive:'resize', add_classes:true, foregroundColor:ink, staffwidth: lay.staffwidth, paddingleft:0, paddingright:0, paddingtop:14});
     } else paper.innerHTML='<div class="sheet-empty">The notation library didn’t load. Check your connection and reload the page.</div>';
-    $('sheetKey').textContent = keyLabel(t.key)+' · '+tempo+' bpm';
+    $('sheetKey').textContent = keyLabel(t.key)+' · '+tempo+' bpm'+(unfit?' (first-note length doesn’t fit: auto)':'');
     meta.innerHTML=segHTML(t);
     list.innerHTML = feedbackHTML(t, lens) + t.notes.map(n=>{
       const c=devC(n.midi,n.cents,t.key), off=fb.tune && Math.abs(c)>=20, tip=off?(c>0?' sharp':' flat'):'';
