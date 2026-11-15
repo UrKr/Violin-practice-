@@ -183,6 +183,11 @@ details.settings[open] > summary{box-shadow:var(--shadow)}
 .genlab{font-size:.7rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:8px}
 .genrow{display:grid; grid-template-columns:1fr 1.9fr 1fr; gap:6px}
 .genrow button{grid-column:1 / -1}
+.genrow.ear{grid-template-columns:1fr 1.6fr}
+.genrow.ear button{grid-column:auto}
+.genhint{color:var(--muted); font-size:.78rem; margin-top:6px}
+.ear-wait{text-align:center; padding:22px 8px 10px; color:var(--muted)}
+.ear-wait b{display:block; color:var(--ink); font-size:1.05rem; font-weight:600; margin-bottom:4px}
 .genrow select,.genrow button{font:inherit; font-size:.86rem; height:36px; padding:0 8px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink)}
 .genrow select{min-width:0}
 .genrow button{font-weight:600; padding:0 14px}
@@ -345,7 +350,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
         <label for="targetIn">Notes to play</label>
         <input id="targetIn" placeholder="G3 A B C4 D E F# G" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
         <input id="targetName" placeholder="Name, to save it" autocomplete="off" enterkeyhint="done">
-        <div class="btns"><button class="primary" id="targetUse">Use</button><button id="targetSave">Save</button><button id="targetClear">Clear</button></div>
+        <div class="btns"><button class="primary" id="targetUse">Use</button><button id="targetSave">Save</button><button id="targetLink" aria-label="Share these notes as a link">Link</button><button id="targetClear">Clear</button></div>
         <div class="perr" id="targetErr"></div>
         <div class="gen">
           <div class="genlab">Scale or arpeggio</div>
@@ -355,6 +360,14 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
             <select id="genOct" aria-label="Octaves"><option value="1">1 oct</option><option value="2" selected>2 oct</option><option value="3">3 oct</option></select>
             <button id="genGo">Fill in</button>
           </div>
+        </div>
+        <div class="gen">
+          <div class="genlab">Play by ear</div>
+          <div class="genrow ear">
+            <select id="earLen" aria-label="Phrase length"><option value="3">3 notes</option><option value="4" selected>4 notes</option><option value="5">5 notes</option><option value="6">6 notes</option></select>
+            <button id="earGo">New phrase</button>
+          </div>
+          <div class="genhint">A short phrase in the key above: listen, then play it back. The notes show after your take.</div>
         </div>
         <div class="saved" id="savedList"></div>
       </div>
@@ -959,7 +972,7 @@ function stretch(x, rate){
     takeCounter=Math.max(takeCounter, ...back.map(t=>t.id));
     const fresh=takes.length>0;
     takes=takes.concat(back).slice(0,MAX_TAKES);
-    if(!fresh){ shownTake=takes[0]; sheetView='result'; }
+    if(!fresh && !linkLoaded){ shownTake=takes[0]; sheetView='result'; }
     renderTakes();
     // read the notes again, newest first, a little at a time so the page stays responsive
     back.forEach((t,i)=>setTimeout(()=>{ if(!t.notes){ analyze(t); if(shownTake===t) renderSheet(); } }, 30+i*60));
@@ -1049,6 +1062,55 @@ function stretch(x, rate){
   $('genGo').onclick=e=>{ e.stopPropagation(); const g=generated();
     $('targetIn').value=compactTarget(g.seq, g.seq.map((x,i)=>i===g.seq.length-1?2:1)); $('targetName').value=g.name; $('targetErr').textContent=''; };
 
+  // ---- share an exercise as a link: ?t=<notes>&n=<name> ----
+  function exerciseLink(str, name){
+    return location.origin+location.pathname+'?t='+encodeURIComponent(str)+(name?'&n='+encodeURIComponent(name):'');
+  }
+  $('targetLink').onclick=async e=>{
+    e.stopPropagation();
+    const str=$('targetIn').value.trim(); if(!str) return;
+    const t=parseTarget(str); if(t.error){ setTarget(str); return; }
+    const name=$('targetName').value.trim(), url=exerciseLink(str, name);
+    if(navigator.share){ try{ await navigator.share({title:name||'Exercise', text:(name?name+': ':'')+str, url}); return; }catch(err){ if(err && err.name==='AbortError') return; } }
+    try{ await navigator.clipboard.writeText(url); toast('Link copied'); }catch(err){ prompt('Copy this link:', url); }
+  };
+  let linkLoaded=false;   // an exercise opened from a link is shown instead of the last take
+  function loadLinkedExercise(){
+    const q=new URLSearchParams(location.search), str=q.get('t'); if(!str) return;
+    const name=(q.get('n')||'').trim();
+    if(setTarget(str, true) && target){
+      linkLoaded=true;
+      if(name && !saved.some(x=>x.name===name)){ saved.unshift({name, str}); storeSaved(); }
+      shownTake=null; sheetView='result'; save();
+      toast((name ? '“'+name+'”' : 'Exercise')+' loaded');
+    }
+    try{ window.history.replaceState(null,'',location.pathname); }catch(e){}   // (the meter has its own 'history')
+  }
+
+  // ---- ear training: a short phrase in the generator's key, notes hidden until a take ----
+  function earPhrase(n){
+    const pc=+$('genKey').value, gt=$('genType').value;
+    const type = /natural|harmonic|melodic/.test(gt) ? gt : gt==='arpMinor' ? 'natural' : 'major';
+    const up=makeScale(pc, type, 1, instr().strings[0]).slice(0,8);   // tonic .. octave
+    let d=0; const seq=[up[0]];
+    for(let i=1;i<n;i++){
+      const r=Math.random(), step = r<0.6 ? 1 : r<0.85 ? 2 : 3 + Math.floor(Math.random()*2);
+      let nd = d + (Math.random()<0.5 ? -step : step);
+      if(nd<0 || nd>7) nd = d - (nd-d);
+      nd=Math.max(0,Math.min(7,nd)); if(nd===d) nd = d<7 ? d+1 : d-1;
+      d=nd; seq.push(up[d]);
+    }
+    return seq;
+  }
+  $('earGo').onclick=e=>{
+    e.stopPropagation();
+    const seq=earPhrase(+$('earLen').value), str=compactTarget(seq);
+    target={str, notes:seq.map(x=>x.midi), hasOct:false, durs:null, onsets:null, ear:true};
+    $('targetBtn').classList.add('on'); $('targetErr').textContent='';
+    shownTake=null; sheetView='result'; openTarget(false); renderTakes(); renderSheet();
+    hearTarget(target.notes);
+  };
+
   function renderStrings(){
     $('tStrings').innerHTML=instr().strings.map(m=>'<span data-m="'+m+'">'+noteName(m,KEYS[0]).replace(/-?\d+$/,'')+'</span>').join('');
   }
@@ -1056,7 +1118,7 @@ function stretch(x, rate){
 
   function openTarget(open){
     $('targetPanel').hidden=!open; $('targetBtn').setAttribute('aria-expanded',open);
-    if(open){ $('settings').open=false; if(tunerOpen) openTuner(false); $('targetIn').value=target?target.str:''; renderSaved(); }
+    if(open){ $('settings').open=false; if(tunerOpen) openTuner(false); $('targetIn').value=target&&!target.ear?target.str:''; renderSaved(); }
   }
   $('targetBtn').onclick=e=>{ e.stopPropagation(); openTarget($('targetPanel').hidden); };
   const useTarget=()=>{ if(setTarget($('targetIn').value)){ streak=0; setTimeout(refreshDrone,0); shownTake=null; sheetView='result'; openTarget(false); save(); renderTakes(); renderSheet(); } };
@@ -1218,7 +1280,7 @@ function stretch(x, rate){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target&&!target.ear?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
     if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
@@ -1728,6 +1790,11 @@ function stretch(x, rate){
 
   function renderTargetOnly(){
     $('sheetTitle').textContent='Notes to play'; $('sheetMeta').textContent=''; $('firstnote').hidden=true;
+    if(target.ear){
+      $('sheetTitle').textContent='Play by ear';
+      $('paper').innerHTML='<div class="ear-wait"><b>Listen, then play it back</b>'+target.notes.length+' notes. They show after your take.</div>';
+      hl=null; $('notelist').innerHTML=HEAR; return;
+    }
     const key=keyOf(target.notes);
     hl={take:null, target:true, els:drawStaff(targetEvents(target), key, null, tBeats(target)), cur:-1};
     $('notelist').innerHTML=HEAR+progressHTML(target.str);
@@ -2077,6 +2144,7 @@ function stretch(x, rate){
   if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost'))
     navigator.serviceWorker.register('./sw.js').catch(()=>{});
 
+  loadLinkedExercise();
   setState('idle'); pedalSync(); renderStrings(); renderSheet(); renderMetro(); restoreTakes();
   requestAnimationFrame(draw);
 })();
