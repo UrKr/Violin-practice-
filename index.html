@@ -177,6 +177,15 @@ canvas{width:100%; height:40px; display:block; border-radius:8px; visibility:hid
 .share{display:inline-flex; align-items:center; gap:6px; height:36px; padding:0 14px; border-radius:999px;
   border:1px solid var(--line); background:transparent; font-size:.88rem; font-weight:600; margin:8px 4px 2px}
 .share svg{width:15px; height:15px}
+/* report a problem (debug export) */
+dialog.report{width:calc(100% - 32px); max-width:440px; border:1px solid var(--line); border-radius:14px; padding:16px 18px 8px;
+  background:var(--surface); color:var(--ink); box-shadow:0 12px 32px color-mix(in srgb, var(--ink) 18%, transparent)}
+dialog.report::backdrop{background:rgba(0,0,0,.35)}
+dialog.report textarea{width:100%; box-sizing:border-box; font:inherit; font-size:1rem; padding:10px 12px; border-radius:10px;
+  border:1px solid var(--line); background:var(--bg); color:var(--ink); resize:vertical}
+dialog.report .heard{color:var(--muted); font-size:.85rem; line-height:1.6; margin:0 0 10px; word-spacing:.1em}
+dialog.report .heard b{font-weight:600; color:var(--ink); font-size:.75rem; margin-right:2px}
+dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 .sheet-head .left{display:flex; align-items:baseline; gap:8px; min-width:0}
 .metro .drone{padding:0 14px; margin-left:6px; color:var(--muted); font-weight:600}
 .metro .drone[aria-pressed="true"]{background:var(--play); border-color:var(--play); color:var(--bg)}
@@ -253,6 +262,16 @@ canvas{width:100%; height:40px; display:block; border-radius:8px; visibility:hid
   </div>
 
   <div class="err" id="err"></div>
+
+  <dialog class="report tpanel" id="report">
+    <form method="dialog">
+      <label for="reportText">What did the app get wrong?</label>
+      <div class="heard" id="reportHeard"></div>
+      <textarea id="reportText" rows="3" placeholder="e.g. note 5 should be E, the long G was split in two"></textarea>
+      <div class="btns"><button class="primary" id="reportGo" value="go">Export</button><button value="cancel">Cancel</button></div>
+      <p class="fine">Saves one file with this recording, the notes the app heard and your settings, for fixing the app. It stays on your device until you send it.</p>
+    </form>
+  </dialog>
 
   <div class="stage" id="stage">
     <div class="orbbox">
@@ -661,7 +680,7 @@ function stretch(x, rate){
   let takes=[], takeCounter=0, currentSrc=null, shownTake=null, recAudioStart=0;
   // what playback is doing right now ({take, when, offset, rate}), and what the sheet shows
   // (so the note being played can be lit up): see updatePlayhead()
-  let playing=null, hl=null;
+  let playing=null, hl=null, lastAbc='';
 
   // ---- metronome (visual only) ----
   const metro={on:false, bpm:72, bpb:4, t0:0};
@@ -1127,7 +1146,7 @@ function stretch(x, rate){
     const paper=$('paper'), meta=$('sheetMeta'), list=$('notelist');
     const t=shownTake;
     $('pitchWrap').hidden=true; paper.hidden=false; $('sheetKey').textContent=''; lastPng=null;
-    hl=null; $('playhead').hidden=true;
+    hl=null; lastAbc=''; $('playhead').hidden=true;
     if(!t || !t.notes || !t.notes.length) $('firstnote').hidden=true;
     if(!t && target) return renderTargetOnly();
     if(!t){ $('sheetTitle').textContent=''; meta.textContent=''; list.innerHTML='';
@@ -1157,7 +1176,7 @@ function stretch(x, rate){
     }
     const narrow = paper.clientWidth < 460;
     const map=[], q=quantize(t.notes,exact||tempo,ref);
-    const abc = toAbc(q, tempo, clefSel.value, narrow?2:4, t.key, beats, map);
+    const abc = toAbc(q, tempo, clefSel.value, narrow?2:4, t.key, beats, map); lastAbc=abc;
     // written length of each note vs. how long it was really held. A note runs until the next
     // one starts, unless the sheet has a rest after it; then it runs until its sound stops.
     const six=60/(exact||tempo)/4;
@@ -1197,7 +1216,7 @@ function stretch(x, rate){
   }
   function drawStaff(ev, key, colors){
     const paper=$('paper'), narrow=paper.clientWidth<460, map=[];
-    let abc=toAbc(ev, 60, clefSel.value, narrow?2:4, key, 4, map).replace(/^Q:.*\n/m,'');
+    let abc=toAbc(ev, 60, clefSel.value, narrow?2:4, key, 4, map).replace(/^Q:.*\n/m,''); lastAbc=abc;
     paper.innerHTML='';
     if(!window.ABCJS){ paper.innerHTML='<div class="sheet-empty">The notation library didn’t load. Check your connection and reload the page.</div>'; return []; }
     ABCJS.renderAbc(paper, abc, {responsive:'resize', add_classes:true, foregroundColor:css('--ink'), staffwidth:Math.max(280,paper.clientWidth-10), paddingleft:0, paddingright:0, paddingtop:4});
@@ -1323,7 +1342,8 @@ function stretch(x, rate){
 
   // ---- sharing a take ----
   let lastPng=null;
-  const SHARE='<button class="share"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>Share</button>';
+  const SHARE='<button class="share"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>Share</button>'
+    + '<button class="share report-btn" aria-label="Report a problem with this take"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>Report</button>';
   function makeShareImage(){
     lastPng=null;
     if(!$('pitchWrap').hidden){ $('pitch').toBlob(b=>{ lastPng=b; },'image/png'); return; }
@@ -1358,7 +1378,52 @@ function stretch(x, rate){
     }
     files.forEach(f=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(f); a.download=f.name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500); });
   }
-  $('sheet').addEventListener('click',e=>{ if(e.target.closest('.share') && shownTake) shareTake(shownTake); });
+  $('sheet').addEventListener('click',e=>{
+    if(!shownTake) return;
+    if(e.target.closest('.report-btn')) openReport(shownTake);
+    else if(e.target.closest('.share')) shareTake(shownTake);
+  });
+
+  // ---- report a problem: one JSON file with the take's audio and everything the app made of it ----
+  let reportTake=null;
+  function openReport(t){
+    reportTake=t;
+    const key=t.key, notes=t.notes||[];
+    $('reportHeard').innerHTML = notes.length
+      ? 'Heard: '+notes.map((n,i)=>'<b>'+(i+1)+'</b>'+noteName(n.midi,key)).join(' · ')
+      : (t.notes ? 'No notes were heard in this take.' : 'Still reading the notes…');
+    $('reportText').value='';
+    const d=$('report'); if(d.showModal) d.showModal(); else d.setAttribute('open','');
+  }
+  $('report').addEventListener('close',()=>{ if($('report').returnValue==='go' && reportTake) exportDebug(reportTake, $('reportText').value.trim()); });
+  const blobToB64=b=>new Promise((ok,bad)=>{ const r=new FileReader(); r.onload=()=>ok(String(r.result).split(',')[1]); r.onerror=bad; r.readAsDataURL(b); });
+  async function exportDebug(t, text){
+    let settings=null; try{ settings=JSON.parse(localStorage.getItem('pib-settings')||'null'); }catch(e){}
+    const key=t.key, shown=shownTake===t, r=t.target && t.notes ? alignTarget(t.target.notes, t.notes, t.target.hasOct) : null;
+    const lens = shown && hl && hl.lens ? hl.lens : null;
+    const data={
+      format:'play-it-back-debug', version:1, exported:new Date().toISOString(),
+      report:text,
+      page:location.href, pageModified:document.lastModified, userAgent:navigator.userAgent,
+      settings, view:{sheetView, halfSpeed, firstNote:firstVal, clef:clefSel.value, autoBpm:autoBpm.checked, manualBpm:+bpm.value, metroOn:metro.on},
+      take:{id:t.id, dur:t.dur, sampleRate:t.buffer.sampleRate, A4:t.A||A4(), bpm:t.bpm, key:key?key.name:null,
+        metro:t.metro, target:t.target, preroll:PREROLL, tail:TAIL},
+      heard:(t.notes||[]).map((n,i)=>({n:i+1, name:noteName(n.midi,key), midi:n.midi, t0:+n.t0.toFixed(3), t1:+n.t1.toFixed(3), cents:n.cents,
+        written:lens&&lens[i]?+lens[i].w.toFixed(3):undefined, held:lens&&lens[i]?+lens[i].a.toFixed(3):undefined})),
+      shown: shown ? {abc:lastAbc, summary:t.lastSummary||''} : null,
+      alignment: r ? {shift:r.shift, extra:r.extra, items:r.items.map(it=>({target:noteName(it.midi,key), status:it.status,
+        played: it.played ? (t.notes.indexOf(it.played)+1) : null, cents:it.cents}))} : null,
+      audio:{type:'audio/wav', base64:await blobToB64(encodeWav(t.buffer))}
+    };
+    const stamp=new Date().toISOString().slice(0,16).replace(/[-:]/g,'').replace('T','-');
+    const file=new File([JSON.stringify(data,null,1)], 'pib-debug-take'+t.id+'-'+stamp+'.json', {type:'application/json'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      try{ await navigator.share({files:[file], title:'Play it back: problem report'}); return; }catch(e){ if(e && e.name==='AbortError') return; }
+    }
+    const a=document.createElement('a'); a.href=URL.createObjectURL(file); a.download=file.name; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
+    toast('Report saved: '+file.name);
+  }
 
   // meter drawing
   // ---- show where playback is: light up the note being played ----

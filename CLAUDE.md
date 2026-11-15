@@ -36,6 +36,14 @@ feeds a recording in as the microphone. A G major one-octave scale at about 59 b
 transcribe as `G A B C | D E F♯ G` in G major (quarter notes), with E and F♯ slightly sharp at A=440
 and in tune at A=442.
 
+## Problem reports
+Under each take, **Report** opens a box listing the notes the app heard (numbered); the player says
+what was wrong and **Export** saves one `pib-debug-take<N>-<date>.json`: the take's audio (16-bit WAV,
+base64), the notes heard (times, cents, written vs held length), the ABC shown, target alignment,
+settings and the player's description. Reports are usually dropped in `debug/`.
+`node tools/replay.mjs <report.json> [--wav out.wav] [--A 442]` runs the current `index.html` note
+detection on it and prints then-vs-now, so a fix can be checked against the report.
+
 ## Ideas discussed but not built
 - Note lengths in target mode, with rhythm judged against the metronome.
 - A teacher version (assign exercises, see students' progress and takes); would need accounts and a server.
