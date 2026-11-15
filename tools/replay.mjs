@@ -1,6 +1,8 @@
-// Replay a "Report" file (pib-debug-*.json) through the app's own note detection.
+// Replay a "Report" file (pib-debug-*.json), or a plain take .wav from Share, through the
+// app's own note detection.
 //
 //   node tools/replay.mjs path/to/pib-debug-take3-20261115-1612.json [--wav out.wav] [--A 442]
+//   node tools/replay.mjs path/to/take-7.wav [--A 442]
 //
 // Prints what the take was reported with (the player's description, the notes the app heard
 // then) next to what the current index.html hears now, so a fix can be checked against it.
@@ -14,7 +16,10 @@ const file = args.find((a, i) => !a.startsWith('--') && !(i > 0 && args[i - 1].s
 const opt = k => { const i = args.indexOf('--' + k); return i >= 0 ? args[i + 1] : undefined; };
 if (!file) { console.error('usage: node tools/replay.mjs <report.json> [--wav out.wav] [--A 442]'); process.exit(1); }
 
-const rep = JSON.parse(readFileSync(file, 'utf8'));
+const rep = /\.wav$/i.test(file)
+  ? { format: 'play-it-back-debug', take: { id: file.replace(/.*[\/]/, '') }, heard: [], report: '', exported: '-', page: '-', pageModified: '-', userAgent: '-',
+      audio: { base64: readFileSync(file).toString('base64') } }
+  : JSON.parse(readFileSync(file, 'utf8'));
 if (rep.format !== 'play-it-back-debug') { console.error('not a Play it back report'); process.exit(1); }
 
 // the app's top-level functions (detectNotes, quantize, toAbc, alignTarget, ...) live before the main IIFE
@@ -42,10 +47,10 @@ if (rep.take.target) console.log(`Target: ${rep.take.target.str}`);
 console.log(`\nReported problem: ${rep.report || '(no description)'}\n`);
 
 const fmt = ns => ns.map(x => `${x.n}:${x.name}${Math.abs(x.cents) >= 20 ? (x.cents > 0 ? '↑' : '↓') : ''}`).join(' ');
-console.log('Heard then: ', fmt(rep.heard));
+if (rep.heard.length) console.log('Heard then: ', fmt(rep.heard));
 const notes = app.detectNotes(data, sr, A4), key = app.guessKey(notes);
 const now = notes.map((x, i) => ({ n: i + 1, name: app.noteName(x.midi, key), cents: x.cents }));
-console.log('Heard now:  ', fmt(now), rep.heard.length === now.length && rep.heard.every((h, i) => h.name === now[i].name) ? '(same)' : '(DIFFERENT)');
+console.log('Heard now:  ', fmt(now), !rep.heard.length ? '' : rep.heard.length === now.length && rep.heard.every((h, i) => h.name === now[i].name) ? '(same)' : '(DIFFERENT)');
 console.log('\n n  note    start   end     cents');
 notes.forEach((x, i) => console.log(String(i + 1).padStart(2), app.noteName(x.midi, key).padEnd(6), x.t0.toFixed(3).padStart(7), x.t1.toFixed(3).padStart(7), String(x.cents).padStart(6)));
 if (rep.take.target) {
