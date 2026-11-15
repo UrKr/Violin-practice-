@@ -642,7 +642,10 @@ function detectNotes(data, sr, A4, detail=0){
       const octave = (harm(p)&&nearP) || (harm(q)&&nearQ);
       // a scratchy start before the first real note (in a fast passage, e.g. a trill, a short first note is real)
       const first = i===0 && q && nearQ && len<Math.max(minF, Math.min(15, medLen*0.6));
-      if(len<minF || first || (octave && len<30)){
+      // an octave-high start that runs straight into its note (no new attack, not longer than it) is that
+      // note's attack heard on a harmonic, at any length up to 0.6 s (G5 -> G4 on a real violin's top G)
+      const attackOf = q && harm(q) && q.a-o.b<=6 && !q.art && len<60 && q.b-q.a+1>=len;
+      if(len<minF || first || (octave && len<30) || attackOf){
         const touchP=p && o.a-p.b<=30, touchQ=q && q.a-o.b<=30;
         // an octave slip belongs to the note it's an octave of (the start of a G4 heard as G5 is
         // part of the G4, not of the F# before it); otherwise the longer neighbour takes it
