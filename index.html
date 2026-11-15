@@ -257,6 +257,8 @@ body.zen .sheet, body.zen .routine, body.zen #toast{display:none !important}
 .seriesbar .dots2 i.done{background:var(--play)}
 .seriesbar button{height:34px; padding:0 12px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink); font-weight:600}
 body.series .sheet, body.series .routine, body.series .zenbar{display:none !important}
+.set .check.bk{flex-wrap:wrap; gap:6px 8px}
+.set .check.bk .inc{display:flex; align-items:center; gap:6px; font-size:.84rem; color:var(--muted); font-weight:400}
 .genhint{color:var(--muted); font-size:.78rem; margin-top:6px}
 .ear-wait{text-align:center; padding:22px 8px 10px; color:var(--muted)}
 .ear-wait b{display:block; color:var(--ink); font-size:1.05rem; font-weight:600; margin-bottom:4px}
@@ -432,6 +434,9 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           <div class="set"><label for="pedal">Pedal</label>
             <select id="pedal"><option value="off">Off</option><option value="on">Bluetooth pedal or keyboard</option></select></div>
           <div class="set" id="pedalHint" hidden><span></span><span class="check">Right pedal: start, finish a take, skip playback. Left pedal: play the take again.</span></div>
+          <div class="set"><span>Your data</span><span class="check bk"><button class="share" id="backupBtn">Back up</button><button class="share" id="restoreBtn">Restore</button>
+            <label class="inc"><input type="checkbox" id="backupTakes" checked> with recordings</label></span></div>
+          <input type="file" id="restoreFile" accept=".json,application/json" hidden>
           <div class="set" id="installRow" hidden><span>App</span><span class="check"><button class="share" id="installBtn">Install on this device</button></span></div>
           <div class="set" id="iosHint" hidden><span>App</span><span class="check">To install: tap Share, then Add to Home Screen.</span></div>
           </section>
@@ -2893,6 +2898,42 @@ function stretch(x, rate){
   }
   wideMQ.addEventListener ? wideMQ.addEventListener('change',placeSettings) : wideMQ.addListener(placeSettings);
   placeSettings();
+
+  // ---- backup and restore: everything the app keeps (all pib-* settings and history), and optionally the
+  // recent takes, in one file; restoring replaces what is here, after asking ----
+  async function makeBackup(){
+    const data={format:'play-it-back-backup', version:1, saved:new Date().toISOString(), store:{}, takes:[]};
+    for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k && k.startsWith('pib-')) data.store[k]=localStorage.getItem(k); }
+    if($('backupTakes').checked){
+      const rows=await dbDo('readonly', st=>st.getAll()) || [];
+      for(const r of rows) data.takes.push({...r, pcm: await blobToB64(new Blob([r.pcm]))});
+    }
+    const stamp=new Date().toISOString().slice(0,10);
+    const file=new File([JSON.stringify(data)], 'play-it-back-backup-'+stamp+'.json', {type:'application/json'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      try{ await navigator.share({files:[file], title:'Play it back backup'}); return; }catch(e){ if(e && e.name==='AbortError') return; }
+    }
+    const a=document.createElement('a'); a.href=URL.createObjectURL(file); a.download=file.name; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
+    toast('Backup saved: '+file.name+(data.takes.length?' ('+data.takes.length+' recordings)':''));
+  }
+  async function restoreBackup(file){
+    let data; try{ data=JSON.parse(await file.text()); }catch(e){ toast('That file isn’t a backup.'); return; }
+    if(!data || data.format!=='play-it-back-backup' || !data.store){ toast('That file isn’t a Play it back backup.'); return; }
+    const n=Object.keys(data.store).length, t=(data.takes||[]).length;
+    if(!confirm('Restore the backup from '+(data.saved||'').slice(0,10)+'? It replaces the settings, exercises, routine and practice history here'+(t?', and the recent recordings':'')+'.')) return;
+    for(const k of Object.keys(localStorage)) if(k.startsWith('pib-')) localStorage.removeItem(k);
+    for(const [k,v] of Object.entries(data.store)) if(k.startsWith('pib-')) localStorage.setItem(k,v);
+    if(t){
+      await forgetAllTakes();
+      for(const r of data.takes){ const bin=atob(r.pcm), u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i);
+        await dbDo('readwrite', st=>st.put({...r, pcm:u.buffer})); }
+    }
+    toast('Restored. Reloading…'); setTimeout(()=>location.reload(), 600);
+  }
+  $('backupBtn').onclick=e=>{ e.stopPropagation(); makeBackup(); };
+  $('restoreBtn').onclick=e=>{ e.stopPropagation(); $('restoreFile').click(); };
+  $('restoreFile').addEventListener('change',()=>{ const f=$('restoreFile').files[0]; $('restoreFile').value=''; if(f) restoreBackup(f); });
 
   // ---- install as an app ----
   let installEvt=null;
