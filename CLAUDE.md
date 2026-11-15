@@ -33,6 +33,12 @@ show up straight away, cached copy offline) and caches the pinned CDN files (abc
 use. Bump `CACHE` in `sw.js` only if the list of shell files changes. Icons are rendered from
 `icons/icon.svg` (maskable variant keeps the glyph in the safe zone).
 
+## Intonation
+Notes are judged against equal temperament or Pythagorean (Settings > Judge against, `refCents`).
+The tuner always takes the open strings G D A E in pure fifths from A (A=440: E 660, D 293.3,
+G 195.6 Hz), whatever the setting; other notes follow the setting. The drone uses the same
+pure-fifth chain, so it agrees with the open strings. Tuner 'In tune' = within 3 cents.
+
 ## Layout
 Phones: one column, all settings behind the settings button. At 1100px and wider: two columns; the
 Listening, Pitch and Feedback setting groups (`.sgrp[data-dock]`) are moved into the main window

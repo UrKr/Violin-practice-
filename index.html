@@ -212,7 +212,8 @@ details.settings[open] > summary{box-shadow:var(--shadow)}
 .tuner .needle{position:absolute; left:50%; top:2px; bottom:2px; width:6px; margin-left:-3px; border-radius:3px; background:var(--listen); transition:transform 90ms linear}
 .tuner .needle.good{background:var(--ok)}
 .tuner .ends{display:flex; justify-content:space-between; color:var(--muted); font-size:.8rem; margin:4px 2px 12px}
-.tuner .strings{display:flex; justify-content:center; gap:8px; margin-bottom:10px}
+.tuner .strings{display:flex; justify-content:center; gap:8px; margin-bottom:6px}
+.tuner .tnote{color:var(--muted); font-size:.78rem; margin-bottom:10px}
 .tuner .strings span{width:44px; height:36px; border-radius:10px; border:1px solid var(--line2); display:grid; place-items:center; font-weight:600; color:var(--muted)}
 .tuner .strings span.near{border-color:var(--ink); color:var(--ink)}
 .tuner .strings span.good{background:var(--ok); border-color:var(--ok); color:var(--bg)}
@@ -326,6 +327,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           <div class="scale"><div class="ticks"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="mid"></div><div class="needle" id="tNeedle"></div></div>
           <div class="ends"><span>Flat</span><span>Sharp</span></div>
           <div class="strings" id="tStrings"><span data-m="55">G</span><span data-m="62">D</span><span data-m="69">A</span><span data-m="76">E</span></div>
+          <div class="tnote" id="tNote2">Strings in pure fifths from A = 440</div>
         </div>
       </div>
       <div class="panel tpanel" id="targetPanel" hidden>
@@ -958,6 +960,10 @@ function stretch(x, rate){
   // the pitch a note should have under the chosen intonation, as cents from equal temperament
   const refCents=(m,key)=> $('inton').value==='pyth' ? pythOffset(m,key) : 0;
   const devC=(m,cents,key)=> Math.round(cents-refCents(m,key));
+  // The open strings are tuned in pure fifths from A, whatever the judging setting:
+  // with A=440, E = 660 Hz (+2.0 cents), D = 293.3 Hz (-2.0), G = 195.6 Hz (-3.9).
+  const OPEN_PC=[7,2,9,4];   // G D A E (any octave)
+  const stringCents=m=> pythOffset(m, KEYS[0]);
   // judge a target alignment under the chosen intonation (alignTarget itself uses equal temperament)
   function judge(r, key){
     r.items.forEach(it=>{ if(it.played && (it.status==='ok'||it.status==='tune')){ it.cents=devC(it.midi,it.played.cents,key); it.status=Math.abs(it.cents)>=20?'tune':'ok'; } });
@@ -976,6 +982,7 @@ function stretch(x, rate){
     tunerOpen=open; $('tunerPanel').hidden=!open; $('tunerBtn').setAttribute('aria-expanded',open); $('tunerBtn').classList.toggle('on',open);
     if(open){
       openTarget(false); $('settings').open=false; tHist=[]; showTune(null);
+      $('tNote2').textContent='Strings in pure fifths from A = '+A4();
       if(!active){ tunerStartedMic=true; await start(); if(!active){ openTuner(false); } }
     } else if(tunerStartedMic){ tunerStartedMic=false; if(active) stop(); }
   }
@@ -994,14 +1001,16 @@ function stretch(x, rate){
     document.querySelectorAll('#tStrings span').forEach(s=>s.className='');
     if(m===null){ $('tNote').innerHTML='–'; $('tCents').textContent='Play a note'; needle.style.transform='translateX(0)'; needle.classList.remove('good'); needle.style.opacity=.3; return; }
     const key = target ? keyOf(target.notes) : (shownTake && shownTake.key) || KEYS[0];
-    const r=Math.round(m), c=Math.round((m-r)*100-refCents(r,key)), name=noteName(r,key);
+    const r=Math.round(m), open=OPEN_PC.includes(((r%12)+12)%12);
+    const c=Math.round((m-r)*100-(open ? stringCents(r) : refCents(r,key))), name=noteName(r, open ? KEYS[0] : key);
     const L=name.replace(/-?\d+$/,''), o=name.slice(L.length);
     $('tNote').innerHTML=L+'<small>'+o+'</small>';
-    $('tCents').textContent = Math.abs(c)<=4 ? 'In tune' : (c>0?'+':'−')+Math.abs(c)+' cents';
+    // 'in tune' within 3 cents: a pure-fifth G and an equal-tempered G are only 3.9 cents apart
+    $('tCents').textContent = Math.abs(c)<=3 ? 'In tune' : (c>0?'+':'−')+Math.abs(c)+' cents';
     const w=needle.parentElement.clientWidth/2;
     needle.style.transform='translateX('+(Math.max(-50,Math.min(50,c))/50*w)+'px)'; needle.style.opacity=1;
-    needle.classList.toggle('good',Math.abs(c)<=4);
-    document.querySelectorAll('#tStrings span').forEach(s=>{ if(+s.dataset.m===r) s.className=Math.abs(c)<=4?'good':'near'; });
+    needle.classList.toggle('good',Math.abs(c)<=3);
+    document.querySelectorAll('#tStrings span').forEach(s=>{ if(+s.dataset.m===r) s.className=Math.abs(c)<=3?'good':'near'; });
   }
 
   // ---- toast ----
@@ -1069,7 +1078,8 @@ function stretch(x, rate){
     if(drone){ const d=drone, t=ac.currentTime; drone=null; d.out.gain.cancelScheduledValues(t); d.out.gain.setValueAtTime(d.out.gain.value,t); d.out.gain.linearRampToValueAtTime(0,t+0.3); d.oscs.forEach(o=>o.stop(t+0.35)); }
     $('droneBtn').setAttribute('aria-pressed','false'); $('droneBtn').textContent='Drone';
   }
-  function droneFreq(m){ const k = target ? keyOf(target.notes) : (shownTake && shownTake.key) || KEYS[1]; return A4()*Math.pow(2,(m-69+refCents(m,k)/100)/12); }
+  // the drone sits in the same pure-fifth chain from A as the strings (a G drone = the open G string)
+  function droneFreq(m){ const k = target ? keyOf(target.notes) : (shownTake && shownTake.key) || KEYS[1]; return A4()*Math.pow(2,(m-69+pythOffset(m,k)/100)/12); }
   function refreshDrone(){ if(drone && (drone.m!==droneMidi() || Math.abs(drone.f-droneFreq(drone.m))>0.01)){ stopDrone(); startDrone(); } }
   $('droneBtn').onclick=()=>{ drone ? stopDrone() : startDrone(); };
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
