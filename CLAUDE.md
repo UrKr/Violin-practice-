@@ -37,7 +37,9 @@ Hosted on GitHub Pages from the `main` branch. Changes should be committed to `m
 `manifest.webmanifest`, `sw.js` and `icons/` make it installable from GitHub Pages (all paths relative,
 so it works under `/Violin-practice-/`). The service worker fetches the page network-first (updates
 show up straight away, cached copy offline) and caches the pinned CDN files (abcjs, fonts) on first
-use. Bump `CACHE` in `sw.js` only if the list of shell files changes. Icons are rendered from
+use (CORS requests, only successful responses; the page is revalidated, with a 4 s fallback to the
+cached copy; only the app page is cached as the offline copy; only `pib-` caches are deleted, since all
+of a user's GitHub Pages sites share one origin). Bump `CACHE` in `sw.js` if the shell or caching changes. Icons are rendered from
 `icons/icon.svg` (maskable variant keeps the glyph in the safe zone).
 
 ## Intonation
@@ -119,8 +121,12 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   es, as; f# and bb also read), ' and , octaves, \relative / \fixed / absolute, lengths 1-128 with dots
   carried over, r/R/s rests, ~ ties (joined into one note), \tuplet / \times, <chords> (top note),
   | bar checks (a bar that doesn't add up is a warning, not an error), \time (sets the metronome's beats
-  per bar), \key (major keys C G D A E F Bb Eb Ab and their minors), \partial; slurs, articulations,
-  dynamics, fingerings, clef, tempo, header blocks ignored; `<<` and `\\` (several voices) not supported.
+  per bar), \key (major keys up to 7 sharps / flats and their minors), \partial; slurs, articulations,
+  dynamics, fingerings, clef, tempo, header and markup blocks ignored; grace notes take no time; tuplet or
+  repeat braces don't switch plain notes to absolute octaves; `<<` and `\\` (several voices) not supported.
+  Only one \time and \key per target (the last one wins). Spelling: target notes keep their written names
+  (`notes.names`, used by `keyOf` to build `key.sp`, which `spell` follows), so C# stays C# in D minor
+  and Pythagorean judging uses the written note.
   Bar checks without \time set the meter (a short first bar = pickup). Plain notes without braces or
   \relative are relative from f' (first note in octave 4) and leave the octave free when judging
   (`hasOct`); without any lengths a target is pitch only. The app always writes `\relative { ... }`
@@ -209,7 +215,7 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   written bars, the passage in ink and its neighbours faded. `toAbc(..., opt)` takes {total, rest:'x'} so
   both staves break into the same bars. Without target notes it plays 'Yours, fixed' when something is off.
 - **Mistakes on the staff** (`fixList(..., inline)`, `markStaff`): each problem note carries a short label in its
-  colour (the note played below a wrong one; above: '+27' / '−15' cents, 'long', 'short', 'early', 'late',
+  colour (red = wrong / missed note, amber = timing or tuning) (the note played below a wrong one; above: '+27' / '−15' cents, 'long', 'short', 'early', 'late',
   the most serious only). Tapping a marked note (nearest within 40 px) shows one line in plain words
   ('C♯4 you played C4 · ¼ beat late') and plays it yours, then right. Below the staff only the counts,
   general points (intervals, extra notes, 'Most often') and ✓ lines; a steady tempo is a ✓ line, the graph
@@ -221,7 +227,9 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   **Sight-reading** (`makeSight`, `SIGHT` levels 1-4: length, keys, leaps, rhythms; ends on the tonic):
   no Hear it before playing; after each take good (90%+ right, rhythm right) / weak (<60%); 3 good in a row
   = level up, 2 weak = level down (`pib-sight`); 'Next phrase' in the result. Drill / sight / ear targets
-  aren't kept as the saved target. A target on one pitch class gets no key signature (`keyOf`).
+  aren't kept as the saved target and don't count in progress / Today. A drill judges timing only (`drillNotes`:
+  every played note counts as the drill's note) and puts Focus and the metronome back when other notes are set.
+  A target on one pitch class gets no key signature (`keyOf`).
 - **Tempo graph** (`tempoHTML`, under the feedback when rhythm is judged): tempo per note (written beats /
   seconds between starts, lengths as written at the player's own tempo), straight-line trend, scatter;
   'speeds up / slows down from X to Y', 'steady (±n)', 'rushing / dragging N%' vs the metronome.
