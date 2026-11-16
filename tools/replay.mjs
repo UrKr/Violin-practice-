@@ -48,7 +48,9 @@ console.log(`\nReported problem: ${rep.report || '(no description)'}\n`);
 
 const fmt = ns => ns.map(x => `${x.n}:${x.name}${Math.abs(x.cents) >= 20 ? (x.cents > 0 ? '↑' : '↓') : ''}`).join(' ');
 if (rep.heard.length) console.log('Heard then: ', fmt(rep.heard));
-const notes = app.detectNotes(data, sr, A4), key = app.guessKey(notes);
+// nothing is read below the instrument's lowest open string less a whole step (as the app does)
+const LOW = { violin: 53, viola: 46, cello: 34 }[(rep.settings && rep.settings.instr) || opt('instr') || 'violin'] ?? 53;
+const notes = app.detectNotes(data, sr, A4, +((rep.settings && rep.settings.detail) || 0), LOW), key = app.guessKey(notes);
 const now = notes.map((x, i) => ({ n: i + 1, name: app.noteName(x.midi, key), cents: x.cents }));
 console.log('Heard now:  ', fmt(now), !rep.heard.length ? '' : rep.heard.length === now.length && rep.heard.every((h, i) => h.name === now[i].name) ? '(same)' : '(DIFFERENT)');
 console.log('\n n  note    start   end     cents');

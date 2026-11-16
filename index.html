@@ -657,7 +657,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 // ---- Transcription: one note at a time ----
 // detail: 0 = clean (short slips absorbed relative to the take's own note lengths), 1 = normal,
 // 2 = detailed (every note from 70 ms)
-function detectNotes(data, sr, A4, detail=0){
+function detectNotes(data, sr, A4, detail=0, low=28){
   A4=A4||440;
   const factor=Math.max(1,Math.round(sr/11025)), fs=sr/factor;
   const n=Math.floor(data.length/factor), x=new Float32Array(n);
@@ -782,7 +782,8 @@ function detectNotes(data, sr, A4, detail=0){
   for(const o of notes){
     const s2=[], s3=[]; for(let f=o.a;f<=o.b;f++) if(r[f]===o.midi){ s2.push(sub2[f]); s3.push(sub3[f]); }
     if(s2.length<5) continue;
-    const drop = med(s2)<0.1 ? 12 : med(s3)<0.1 ? 19 : 0;
+    let drop = med(s2)<0.1 ? 12 : med(s3)<0.1 ? 19 : 0;
+    if(o.midi-drop<low) drop = o.midi-12>=low && med(s2)<0.1 ? 12 : 0;   // never below the instrument
     if(drop){ for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && r[f]===o.midi) pitch[f]-=drop; o.midi-=drop; }
   }
   for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6 && !notes[i].art){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; } }
@@ -824,6 +825,32 @@ function detectNotes(data, sr, A4, detail=0){
     // re-join neighbours that now share a pitch (unless the second one was bowed anew)
     for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6 && !notes[i].art){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; changed=true; } }
   }
+  // How much of a note's sound does NOT repeat at a given period (in downsampled samples): 0 = all of
+  // it repeats, ~1 = none. Median over frames from the middle of the note.
+  const share=(o,L)=>{
+    const fr=[]; for(let f=o.a+3; f<=o.b-3; f+=Math.max(1,Math.floor((o.b-o.a)/10))) fr.push(f);
+    if(!fr.length) fr.push((o.a+o.b)>>1);
+    const v=fr.map(f=>{ const st=f*hop; let best=Infinity;
+      for(let l=Math.max(1,Math.round(L)-1); l<=Math.round(L)+1; l++){ if(st+W+l>=n) continue;
+        let dd=0,e1=0,e2=0; for(let j=0;j<W;j++){ const a=x[st+j], b=x[st+j+l]; dd+=(a-b)*(a-b); e1+=a*a; e2+=b*b; }
+        best=Math.min(best, dd/(e1+e2+1e-12)); }
+      return best; });
+    return med(v);
+  };
+  const lag=m=>fs/(A4*Math.pow(2,(m-69)/12));
+  // Below the instrument's lowest note there is no real note, usually: a ringing open string under the note
+  // played (D4 over the open G repeats every G2 period) or a lost fundamental. Go up an octave or an
+  // octave and a fifth, whichever period the sound repeats at better, until it is in range.
+  // (Only when most of the sound does repeat at the higher pitch: a sung low note is a real note.)
+  for(const o of notes){
+    while(o.midi<low){
+      const s2u=share(o, lag(o.midi)/2), s3u=share(o, lag(o.midi)/3);
+      if(Math.min(s2u,s3u)>0.4) break;
+      const up = s3u < 0.7*s2u && o.midi+19<=low+11 ? 19 : 12;
+      for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && Math.abs(pitch[f]-o.midi)<0.8) pitch[f]+=up;
+      o.midi+=up;
+    }
+  }
   // A single note an octave too high in the middle of a tune (a voice's harmonic, a scratchy attack):
   // it sits 9+ semitones above its neighbours, an octave lower it would be a step from them, it is not
   // the same note name as them (that would be a real octave leap: D4 D5), and the signal leans
@@ -833,6 +860,16 @@ function detectNotes(data, sr, A4, detail=0){
     if(!nbs.length || !nbs.every(n=>o.midi-n.midi>=9 && Math.abs(o.midi-12-n.midi)<=3 && (o.midi-n.midi)%12!==0)) continue;
     const s2=[]; for(let f=o.a;f<=o.b;f++) if(r[f]===o.midi) s2.push(sub2[f]);
     if(s2.length && med(s2)<0.35){ for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && r[f]===o.midi) pitch[f]-=12; o.midi-=12; }
+  }
+  // The other way round: a single note an octave too low. A G4 over the open G string still ringing (or
+  // ringing in sympathy) repeats every G3 period, so it reads G3. It sits 10+ semitones below its
+  // neighbours, an octave higher it would be within a whole step of them, and it is not the same note
+  // name as them (G4 G3 is a real octave leap). With one neighbour only (first or last note), the same.
+  for(let i=0;i<notes.length;i++){
+    const o=notes[i], nbs=[notes[i-1],notes[i+1]].filter(n=>n && (n===notes[i-1] ? o.a-n.b : n.a-o.b)<=30);
+    if(!nbs.length || !nbs.every(n=>n.midi-o.midi>=10 && Math.abs(o.midi+12-n.midi)<=2 && (n.midi-o.midi)%12!==0)) continue;
+    for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && Math.abs(pitch[f]-o.midi)<0.8) pitch[f]+=12;
+    o.midi+=12;
   }
   // A voice (or a slide) hovering around the halfway point between two notes splits into short
   // pieces a semitone apart (E D# E D# E, or a scoop C B C). Neighbours a semitone apart whose real
@@ -1706,7 +1743,7 @@ function renderFix(x, sr, plan){
   const forgetTake=id=>dbDo('readwrite', st=>st.delete(id));
   const forgetAllTakes=()=>dbDo('readwrite', st=>st.clear());
   const detail=()=>+$('detail').value||0;
-  function analyze(t){ const d=t.buffer.getChannelData(0); t.A=t.A||A4(); t.detail=detail(); t.notes=detectNotes(d,t.buffer.sampleRate,t.A,t.detail); t.bpm=guessTempo(t.notes); t.key=guessKey(t.notes); }
+  function analyze(t){ const d=t.buffer.getChannelData(0); t.A=t.A||A4(); t.detail=detail(); t.notes=detectNotes(d,t.buffer.sampleRate,t.A,t.detail,lowNote()); t.bpm=guessTempo(t.notes); t.key=guessKey(t.notes); }
   async function restoreTakes(){
     const rows=await dbDo('readonly', st=>st.getAll());
     if(!rows || !rows.length) return;
@@ -2156,6 +2193,8 @@ function renderFix(x, sr, plan){
                 viola:{strings:[48,55,62,69], clef:'alto', droneBase:48},
                 cello:{strings:[36,43,50,57], clef:'bass', droneBase:36} };
   const instr=()=>INSTR[$('instr').value]||INSTR.violin;
+  // the lowest note the instrument can play, less a whole step (a flat open string): no note is read below it
+  function lowNote(){ return instr().strings[0]-2; }
   // the clef for some notes: the chosen one, or by instrument and range (viola alto, treble when high;
   // cello bass, tenor when high; violin treble, bass for low voices/other instruments)
   function clefFor(midis){
@@ -2799,7 +2838,7 @@ function renderFix(x, sr, plan){
     else if(coach.on && active){ setState('cooldown'); take.coachWait=true; }
     else if(auto.checked && active) playTake(take, +rep.value);
     else setState(active?'listening':'idle');
-    setTimeout(()=>{ take.A=A4(); take.detail=detail(); take.notes=detectNotes(data,sr,A4(),take.detail); take.bpm=guessTempo(take.notes); take.key=guessKey(take.notes); recordTendency(take); onAnalyzed(take); rememberIssues(take);
+    setTimeout(()=>{ take.A=A4(); take.detail=detail(); take.notes=detectNotes(data,sr,A4(),take.detail,lowNote()); take.bpm=guessTempo(take.notes); take.key=guessKey(take.notes); recordTendency(take); onAnalyzed(take); rememberIssues(take);
       if(take.coachWait){ take.coachWait=false; coachAfter(take); }
       if(shownTake===take) renderSheet();
       if(series && series.ids.length>=series.n && takes.filter(k=>series.ids.includes(k.id)).every(k=>k.notes)) endSeries(); },60);

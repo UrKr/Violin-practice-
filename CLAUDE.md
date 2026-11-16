@@ -90,8 +90,14 @@ fundamental open strings, octave leaps, out-of-tune notes, a note hovering betwe
 with the expected notes. Run it after any change to `detectNotes`, and add a case for each fix.
 `node tools/audit.mjs [--abc]` is the wider audit: 20 realistic violin scenarios (re-bowed repeated notes,
 détaché, staccato, soft notes, wide vibrato, shifts, scratchy attacks, E6-E7, cello range, dotted
-rhythm, triplets, trill, rests between phrases, grace notes). One known limitation: a double stop a fifth
-apart reads an octave below the lower note. Test signals keep only ~0.35 s of silence at each end, like
+rhythm, triplets, trill, rests between phrases, grace notes, a double stop a fifth apart).
+An open string left ringing (or ringing in sympathy) under a higher note makes the mix repeat at a lower
+period (G4 over a ringing G3 reads G3; D4 over it reads G2). Two fixes: `detectNotes(..., low)` gets the
+instrument's lowest open string less a whole step (`lowNote()`); a note below it goes up an octave (or an
+octave and a fifth, whichever period the sound repeats at better) when most of the sound repeats there
+(a sung low note doesn't, and stays). And a single note 10+ semitones below its neighbours, an octave up
+within a whole step of them and not the same note name, goes up an octave. Limitation: a G3 as loud as
+-6 dB under a G4 between notes a fifth away (D4 G4 D4) can't be told from a real G3. Test signals keep only ~0.35 s of silence at each end, like
 real takes: offline signals with long silences hid a noise-floor bug once. Also check the real reports
 (`tools/replay.mjs`) - a real violin's strong harmonics and room echo behave differently from synthesis.
 

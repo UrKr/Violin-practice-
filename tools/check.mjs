@@ -36,6 +36,16 @@ function take(notes, { amps = NORM, bpm = 60, noise = 0.02, vib = 0.004 } = {}) 
   return Float32Array.from(out);
 }
 const G = [55, 57, 59, 60, 62, 64, 66, 67];
+// an open string left ringing (or ringing in sympathy) under what follows: a tone added from 'from'
+// seconds after the take's start, decaying with time constant tau (amps: an open string's spectrum)
+function ring(x, m, from, amp, tau = 3, until = Infinity, amps = WEAK) {
+  const f = 440 * 2 ** ((m - 69) / 12), a0 = Math.round((0.35 + from) * SR), a1 = Math.min(x.length - SR * 0.4, Math.round((0.35 + until) * SR));
+  for (let i = a0; i < a1; i++) {
+    const t = (i - a0) / SR, env = amp * Math.exp(-t / tau) * Math.min(1, t / 0.05) * Math.min(1, (a1 - i) / SR / 0.05);
+    let v = 0; amps.forEach((a, k) => { v += a * Math.sin(2 * Math.PI * f * (k + 1) * t + k); }); x[i] += v * 0.18 * env;
+  }
+  return x;
+}
 const cases = [
   ['G major scale', take(G.map(m => [m, 1])), 'G3 A3 B3 C4 D4 E4 F♯4 G4'],
   ['uneven rhythm', take(G.map((m, i) => [m, [1, 1, 1, 1, 1.4, 0.65, 0.95, 2][i]])), 'G3 A3 B3 C4 D4 E4 F♯4 G4'],
@@ -44,6 +54,11 @@ const cases = [
   ['octave leaps, weak fundamental', take([[55, 1], [67, 1], [62, 1], [74, 1], [67, 1], [79, 1], [55, 2]], { amps: WEAK }), 'G3 G4 D4 D5 G4 G5 G3'],
   ['arpeggio to G5', take([[55, 1], [59, 1], [62, 1], [67, 1], [71, 1], [74, 1], [79, 2]], { amps: WEAK, noise: 0.04 }), 'G3 B3 D4 G4 B4 D5 G5'],
   ['out of tune B and F#', take(G.map(m => [m, 1, m === 59 ? -28 : m === 66 ? 30 : 0])), 'G3 A3 B3 C4 D4 E4 F♯4 G4'],
+  // G4 with the open G still ringing from the start of the scale, or sounding in sympathy under it
+  ['scale over a ringing open G', ring(take(G.map(m => [m, 1])), 55, 1, 0.6, 4), 'G3 A3 B3 C4 D4 E4 F♯4 G4'],
+  ['G4 over a G3 at -12 dB', ring(take([[62, 1], [67, 2], [62, 1], [67, 2]]), 55, 0, 0.25, 99), 'D4 G4 D4 G4'],
+  // a G3 as loud as -6 dB under a G4 can't be told from the sound; the melody decides (D4 G3 D4 stays)
+  ['scale top G4 over a G3 at -6 dB', ring(take([[62, 1], [64, 1], [66, 1], [67, 2]]), 55, 3, 0.5, 99), 'D4 E4 F♯4 G4'],
   ['note hovering between D# and E', take([[60, 1], [62, 1], [64, 1.5, -45, 18], [65, 1], [67, 1]], { vib: 0.002 }), 'C4 D4 E4 F4 G4'],
   // slides / scratchy starts: a 100 ms slip a whole step below each note. Clean ignores them, Detailed shows them.
   ['slips into notes (clean)', take(G.flatMap(m => [[m - 2, 0.1], [m, 0.9]])), 'G3 A3 B3 C4 D4 E4 F♯4 G4', 0],
@@ -54,7 +69,7 @@ const cases = [
 ];
 let bad = 0;
 for (const [name, x, want, detail = 0] of cases) {
-  const notes = detectNotes(x, SR, 440, detail), key = guessKey(notes);
+  const notes = detectNotes(x, SR, 440, detail, 53), key = guessKey(notes);   // violin: nothing below F3
   const got = notes.map(n => noteName(n.midi, key)).join(' ');
   const ok = got === want; if (!ok) bad++;
   console.log((ok ? 'ok   ' : 'FAIL ') + name.padEnd(34) + got + (ok ? '' : '   (expected ' + want + ')'));
