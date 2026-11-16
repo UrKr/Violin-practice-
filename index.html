@@ -3234,7 +3234,7 @@ function renderFix(x, sr, plan){
   }
 
   let playTok=0;
-  async function playTake(take, times){
+  async function playTake(take, times, next){
     stopPlayback();
     const tok=++playTok;
     if(micPending) try{ await micPending; }catch(e){}      // (the mic reopening: close it properly below)
@@ -3246,7 +3246,7 @@ function renderFix(x, sr, plan){
     if(state!=='playing' || tok!==playTok) return;          // (another playback, or Stop, meanwhile)
     let left=times;
     let buf=take.buffer;
-    if(halfSpeed && take.id!=='target'){
+    if(halfSpeed && take.id!=='target' && take.id!=='model'){
       if(!take.slow){ const y=stretch(take.buffer.getChannelData(0),0.5); take.slow=ac.createBuffer(1,y.length,take.buffer.sampleRate); take.slow.copyToChannel(y,0); }
       buf=take.slow;
     }
@@ -3266,6 +3266,7 @@ function renderFix(x, sr, plan){
         if(currentSrc!==s) return;
         left--;
         if(left>0 && state==='playing'){ setTimeout(()=>{ if(state==='playing' && tok===playTok) once(); }, metro.on?0:250); }
+        else if(next && state==='playing' && tok===playTok) next();
         else afterPlayback();
       };
     };
@@ -3926,9 +3927,17 @@ function renderFix(x, sr, plan){
     return oc.startRendering();
   }
   // the target's notes at a beat length: starts and lengths in seconds (a leading rest skipped)
-  function modelTimes(tt, beat){
-    const durs=tt.durs || tt.notes.map(()=>1), ons=tt.onsets || tt.notes.map((m,i)=>i), lead=tt.durs ? ons[0] : 0;
-    return {at:i=>(ons[i]-lead)*beat+0.05, len:i=>durs[i]*beat, total:(ons[ons.length-1]-lead+durs[durs.length-1])*beat+0.6};
+  // (onBar: from a bar line, the first note at its place in the bar, e.g. a pickup on beat 4; else from
+  // the first note)
+  function modelTimes(tt, beat, onBar){
+    const durs=tt.durs || tt.notes.map(()=>1), ons=tt.onsets || tt.notes.map((m,i)=>i);
+    const barB = tt.meter ? lyBeats(tt.meter) : metro.bpb, lead = !tt.durs ? 0 : onBar ? Math.floor(ons[0]/barB)*barB : ons[0], pad = onBar ? 0 : 0.05;
+    return {at:i=>(ons[i]-lead)*beat+pad, len:i=>durs[i]*beat, total:(ons[ons.length-1]-lead+durs[durs.length-1])*beat+0.6};
+  }
+  // the model as something playTake starts on the next downbeat (with the metronome on)
+  async function modelTake(tt){
+    const onBar=metro.on, T=modelTimes(tt, modelBeat(), onBar), buf=await renderModel(tt.notes, T.at, T.len, T.total, ac.sampleRate);
+    return onBar ? {id:'model', buffer:buf, metro:{bpm:metro.bpm, bpb:metro.bpb, t0:metro.t0}, audioStart:0, barStartAbs:0} : {id:'model', buffer:buf};
   }
   async function hearTarget(notes, durs, onsets){
     ensureAC(); await ac.resume(); anchorClock();
@@ -3947,10 +3956,10 @@ function renderFix(x, sr, plan){
   const modelBeat=()=> metro.on ? 60/metro.bpm : (target && lastTargetSpb[target.str]) || 60/metro.bpm;
   async function playModel(){
     if(!target || target.ear || !active || state==='recording') return;
-    const T=modelTimes(target, modelBeat()), buf=await renderModel(target.notes, T.at, T.len, T.total, ac.sampleRate);
+    const mt=await modelTake(target);
     if(!active || state==='recording') return;
     model.phase='model'; renderModelBar();
-    playTake({id:'model', buffer:buf}, 1);
+    playTake(mt, 1);
   }
   const concat=(parts,sr)=>{ const n=parts.reduce((k,y)=>k+y.length,0), b=ac.createBuffer(1,n,sr), all=new Float32Array(n); let o=0; for(const y of parts){ all.set(y,o); o+=y.length; } b.copyToChannel(all,0); return b; };
   async function modelAfter(t){
@@ -3967,7 +3976,15 @@ function renderFix(x, sr, plan){
       for(let i=0;i<x.length;i++) mix[i]=Math.max(-1,Math.min(1,x[i]*0.85+(y[i]||0)*g));
       if(!active || state==='recording') return;
       model.phase='both'; renderModelBar();
-      playTake({id:'fix', buffer:concat([mix],sr)}, 1);
+      playTake({id:'fix', buffer:concat([mix],sr), metro:t.metro, audioStart:t.audioStart, barStartAbs:t.barStartAbs}, 1);   // (on the beat as it was played)
+      return;
+    }
+    if(metro.on && t.metro){
+      // with the metronome: the take on the beat as it was played, then the model from the next downbeat
+      const mt=await modelTake(t.target||target);
+      if(!active || state==='recording') return;
+      model.phase='yours'; renderModelBar();
+      playTake(t, 1, ()=>{ model.phase='model'; stateText.textContent='Model'; renderModelBar(); playTake(mt, 1); });
       return;
     }
     // one after the other: the take, a pause, the model

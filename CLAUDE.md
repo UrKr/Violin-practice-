@@ -239,6 +239,10 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   sheet says what to do; the sheet shows the notes to play (the take's result is on its button). The synth
   (also Hear it): sawtooth + triangle, vibrato after the attack, a brighter bow attack, body peaks ~280 Hz
   and ~2.8 kHz, tuned under the judging setting.
+  With the metronome on, everything is on its grid: the model starts on the next downbeat with its first
+  note at its place in the bar (`modelTake`: buffer from a bar line, a pickup on its beat; the clicks before
+  it are the count-in); after a take the take plays on the beat as it was played, then the model from the
+  next downbeat (`playTake(take, times, next)` chains them); the together mix keeps the take's grid.
 - **Mistakes on the staff** (`fixList(..., inline)`, `markStaff`): each problem note carries a short label in its
   colour (red = wrong / missed note, amber = timing or tuning) (the note played below a wrong one; above: '+27' / '−15' cents, 'long', 'short', 'early', 'late',
   the most serious only). Tapping a marked note (nearest within 40 px) shows one line in plain words
