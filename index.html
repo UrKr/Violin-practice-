@@ -205,6 +205,7 @@ details.settings[open] > summary{box-shadow:var(--shadow)}
 .genrow button{grid-column:1 / -1}
 .genrow.ear{grid-template-columns:1fr 1.6fr}
 .genrow.ear button{grid-column:auto}
+.genrow.drill{grid-template-columns:0.8fr 1.6fr}
 .genrow.rt{grid-template-columns:1.5fr 1fr}
 .genrow.rt button{grid-column:auto}
 .rtlist{display:flex; flex-direction:column; margin-bottom:8px}
@@ -507,6 +508,15 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
             <button id="earGo">New phrase</button>
           </div>
           <div class="genhint">A short phrase in the key above: listen, then play it back. The notes show after your take.</div>
+        </div>
+        <div class="gen">
+          <div class="genlab">Rhythm drill</div>
+          <div class="genrow drill">
+            <select id="drillStr" aria-label="String"></select>
+            <select id="drillType" aria-label="Kind of rhythm"><option value="basic">Quarters & eighths</option><option value="dotted">Dotted</option><option value="sync">Syncopation</option><option value="rests">With rests</option><option value="mixed">Mixed</option></select>
+            <button id="drillGo">New drill</button>
+          </div>
+          <div class="genhint">Two bars on one open string; only the rhythm is judged. Turns the metronome on.</div>
         </div>
         <div class="saved" id="savedList"></div>
         <div class="gen">
@@ -1484,7 +1494,41 @@ function stretch(x, rate){
     hearTarget(target.notes);
   };
 
+  // ---- rhythm drills: two bars of 4/4 on one open string, from bar patterns of a kind ----
+  const DRILLS={
+    basic:[[1,1,1,1],[1,1,.5,.5,1],[.5,.5,1,1,1],[1,.5,.5,.5,.5,1],[.5,.5,.5,.5,1,1],[2,1,1],[1,1,2]],
+    dotted:[[1.5,.5,1,1],[1,1.5,.5,1],[1.5,.5,1.5,.5],[.75,.25,1,1,1],[1,.75,.25,2]],
+    sync:[[.5,1,.5,1,1],[1,.5,1,.5,1],[.5,1,1,1,.5],[.5,1,.5,2]],
+    rests:[[1,-1,1,1],[1,1,-1,1],[-.5,.5,1,1,1],[1,-.5,.5,1,1],[.5,.5,-1,2]],
+  };
+  const pick=a=>a[Math.floor(Math.random()*a.length)];
+  function makeDrill(midi, kind){
+    const pool = kind==='mixed' ? [].concat(...Object.values(DRILLS)) : DRILLS[kind];
+    const bars=[pick(pool), pick(pool)];
+    const seq=[], durs=[], {L,a,oct}=spell(midi,KEYS[0]), name=L+(a>0?'#':'')+oct;
+    for(const bar of bars) for(const d of bar){ if(d<0){ seq.push({rest:true}); durs.push(-d); } else { seq.push({midi, name}); durs.push(d); } }
+    return compactTarget(seq, durs);
+  }
+  function setFocus(f){
+    if(f==='zen'){ setZen(true); return; }
+    Object.assign(fb, FOCUS[f]); for(const k in FOCUS[f]) $(FB_IDS[k]).checked=fb[k];
+    if(document.body.classList.contains('zen')) setZen(false); else { save(); renderSheet(); }
+    renderFocus();
+  }
+  $('drillGo').onclick=e=>{
+    e.stopPropagation();
+    const str=makeDrill(+$('drillStr').value, $('drillType').value);
+    if(!setTarget(str, true)) return;
+    target.drill=true; $('targetIn').value=str; $('targetName').value='';
+    if(!metro.on){ metro.on=true; metro.t0=clock()+0.05; clickedUpTo=-1; renderMetro(); }
+    shownTake=null; sheetView='result'; openTarget(false);
+    setFocus('rhythm'); save(); renderTakes(); renderSheet();
+    toast('Rhythm drill: only timing counts. Metronome at '+metro.bpm+' bpm.');
+  };
+
   function renderStrings(){
+    $('drillStr').innerHTML=instr().strings.map(m=>'<option value="'+m+'">'+noteName(m,KEYS[0]).replace(/-?\d+$/,'')+' string</option>').join('');
+    $('drillStr').value=String(instr().strings[instr().strings.length-2]);   // (A on violin, G on viola/cello)
     $('tStrings').innerHTML=instr().strings.map(m=>'<span data-m="'+m+'">'+noteName(m,KEYS[0]).replace(/-?\d+$/,'')+'</span>').join('');
   }
   $('instr').addEventListener('change',()=>{ save(); renderStrings(); renderSheet(); refreshDrone(); });
@@ -1504,15 +1548,7 @@ function stretch(x, rate){
     const cur = zen ? 'zen' : Object.keys(FOCUS).find(k=>Object.entries(FOCUS[k]).every(([f,v])=>fb[f]===v));
     document.querySelectorAll('#focusSeg button').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.f===cur)));
   }
-  $('focusSeg').addEventListener('click',e=>{
-    const b=e.target.closest('button'); if(!b) return;
-    const f=b.dataset.f;
-    if(f==='zen'){ setZen(true); return; }
-    Object.assign(fb, FOCUS[f]);
-    for(const k in FOCUS[f]) $(FB_IDS[k]).checked=fb[k];
-    if(document.body.classList.contains('zen')) setZen(false); else { save(); renderSheet(); }
-    renderFocus();
-  });
+  $('focusSeg').addEventListener('click',e=>{ const b=e.target.closest('button'); if(b) setFocus(b.dataset.f); });
   $('zenBox').addEventListener('change',()=>setZen($('zenBox').checked));
   $('zenOff').onclick=()=>setZen(false);
   $('detail').addEventListener('change',()=>{ save(); renderSheet(); });   // the shown take is read again (notesFor)
@@ -2593,7 +2629,8 @@ function stretch(x, rate){
     });
     return {lens, flags, spb};
   }
-  function keyOf(midis){ return guessKey(midis.map((m,i)=>({midi:m,t0:i,t1:i+1}))); }
+  // (a drill on one note has no key: no key signature rather than A major for a row of A's)
+  function keyOf(midis){ return midis.length && midis.every(m=>m%12===midis[0]%12) ? KEYS[0] : guessKey(midis.map((m,i)=>({midi:m,t0:i,t1:i+1}))); }
 
   async function hearTarget(notes, durs, onsets){
     ensureAC(); await ac.resume(); anchorClock();
