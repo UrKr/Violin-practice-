@@ -263,6 +263,10 @@ body.zen .sheet, body.zen .routine, body.zen #toast{display:none !important}
 .fix .what{flex:1; min-width:0}
 .fix .what small{color:var(--muted)}
 .fix .freq{color:var(--muted); font-size:.78rem; white-space:nowrap}
+.fixcap{font-size:.84rem; color:var(--muted); padding:4px 8px; margin:2px 0 4px; border-radius:8px; background:var(--bg)}
+.fixcap.on{color:var(--ink)}
+.fixcap.fx-bad b{color:var(--rec)} .fixcap.fx-tune b{color:var(--listen)} .fixcap.fx-miss b{color:var(--muted)}
+#paper .abcjs-note.marked{cursor:pointer}
 .fix .fixplay{flex:none; width:26px; height:26px; margin:-2px -4px -2px 0; border-radius:50%; border:1px solid var(--line2); background:var(--surface); color:var(--play); display:grid; place-items:center; padding:0}
 .fix .fixplay svg{width:10px; height:10px; margin-left:1px}
 .goods{display:flex; flex-wrap:wrap; gap:2px 12px; color:var(--ok); font-weight:600; font-size:.82rem; margin:3px 2px 2px}
@@ -1143,7 +1147,7 @@ function toAbc(ev,bpm,mode,barsPerLine,key,beats,map,keepLast){
     segment(e.e-e.s,e.midi); }
   if(pos%BAR) segment(BAR-(pos%BAR),null);
   body=body.trim().replace(/\|\s*$/,'')+'|]';
-  return `X:1\n${stretch?'%%stretchlast 1\n':''}M:${meter}\nL:1/16\nQ:1/4=${bpm}\nK:${key.name} clef=${clef}\n${body}\n`;
+  return `X:1\n${stretch?'%%stretchlast 1\n':''}%%annotationfont sans-serif 9\nM:${meter}\nL:1/16\nQ:1/4=${bpm}\nK:${key.name} clef=${clef}\n${body}\n`;
 }
 
 // ---- Scales and arpeggios, spelled from the key (A harmonic minor has G#, D harmonic minor C#) ----
@@ -2972,9 +2976,16 @@ function renderFix(x, sr, plan){
   // staff), in plain words; wrong / missed notes first, then rhythm, then tuning; then general points
   // (intervals, extra notes) and a line for what went well ----
   const pctTxt=p=>Math.abs(Math.round(p))+'%';
-  function fixList(rows, general=[], goods=[], play=false){
+  function fixList(rows, general=[], goods=[], play=false, inline=false){
     const by=new Map();
-    for(const r of rows){ const g=by.get(r.i); if(g){ g.parts.push(r.part); if(r.sev<g.sev){ g.sev=r.sev; g.cls=r.cls; } g.freq=Math.max(g.freq||0, r.freq||0); } else by.set(r.i,{...r, parts:[r.part]}); }
+    for(const r of rows){ const g=by.get(r.i); if(g){ g.parts.push(r.part); if(r.lab) g.labs.push({lab:r.lab, sev:r.sev}); if(r.sev<g.sev){ g.sev=r.sev; g.cls=r.cls; } g.freq=Math.max(g.freq||0, r.freq||0); } else by.set(r.i,{...r, parts:[r.part], labs:r.lab?[{lab:r.lab, sev:r.sev}]:[]}); }
+    if(inline){
+      // on the staff: a short label at each note (the note played below a wrong one), the details on a tap
+      const marks={}; for(const g of by.values()) marks[g.i]={lab:g.labs.length ? g.labs.reduce((a,b)=>b.sev<a.sev?b:a).lab : '', cls:g.cls, txt:'<b>'+g.name+'</b> '+g.parts.join(' · ')};
+      let html=general.length ? '<ol class="fix">'+general.map(x=>'<li class="fx-gen fx-'+x.cls+'"><span class="num">'+(x.icon||'•')+'</span><span class="what">'+x.html+'</span></li>').join('')+'</ol>' : '';
+      if(goods.length) html+='<div class="goods">'+goods.map(g=>'<span>✓ '+g+'</span>').join('')+'</div>';
+      return {html, nums:{}, marks, n:by.size+general.length};
+    }
     const list=[...by.values()].sort((a,b)=>a.sev-b.sev || a.i-b.i), nums={};
     list.forEach((g,k)=>nums[g.i]=k+1);
     const shown=list.slice(0,8);
@@ -3014,6 +3025,7 @@ function renderFix(x, sr, plan){
       +'<line x1="'+X(t0)+'" x2="'+X(t1)+'" y1="'+Y(a)+'" y2="'+Y(b)+'" class="fit"/>'
       +'<polyline class="ln" points="'+pts.map(p=>X(p.t).toFixed(1)+','+Y(p.bpm).toFixed(1)).join(' ')+'"/>'
       +pts.map(p=>'<circle cx="'+X(p.t).toFixed(1)+'" cy="'+Y(p.bpm).toFixed(1)+'" r="3" style="fill:'+col(p.bpm)+'"/>').join('')+'</svg>';
+    if(good) return '<div class="goods"><span title="Tempo per note, '+(metroBpm?'against the metronome':'your own tempo '+Math.round(ref)+' bpm')+'">✓ Tempo '+parts.join(' · ')+'</span></div>';
     return '<div class="tempo" title="Tempo per note. Dashed line: '+(metroBpm?'metronome '+metroBpm:'your tempo '+Math.round(ref))+' bpm; higher = faster"><div class="tl"><b>Tempo</b> <span class="'+(good?'c-ok':'')+'">'+parts.join(' · ')+'</span></div>'+svg+'</div>';
   }
   // (note lengths as written at the player's own tempo: on the metronome's grid a steady but different tempo
@@ -3034,17 +3046,17 @@ function renderFix(x, sr, plan){
     if(!fb.text || !t.notes || !t.notes.length) return {html:'', nums:{}};
     const key=t.key, rows=[], general=[], goods=[];
     if(fb.tune){
-      t.notes.forEach((n,i)=>{ const c=devC(n.midi,n.cents,key); if(Math.abs(c)>=20) rows.push({i, name:noteName(n.midi,key), cls:'tune', sev:2, part:Math.abs(c)+' cents '+(c>0?'sharp':'flat')}); });
+      t.notes.forEach((n,i)=>{ const c=devC(n.midi,n.cents,key); if(Math.abs(c)>=20) rows.push({i, name:noteName(n.midi,key), cls:'tune', sev:2, lab:(c>0?'+':'−')+Math.abs(c), part:Math.abs(c)+' cents '+(c>0?'sharp':'flat')}); });
       intervalItems(t.notes, key).forEach(x=>general.push({cls:'tune', html:x.html, icon:'↔'}));
       if(!rows.length) goods.push('In tune');
     }
     if(fb.rhythm && lens && t.notes.length>=3){
       let any=false;
       lens.forEach((L,i)=>{ const r=L.a/L.w; if(L.free || Math.abs(r-1)<0.25) return; any=true;
-        rows.push({i, name:noteName(t.notes[i].midi,key), cls:'bad', sev:1, part:'held '+pctTxt((r-1)*100)+(r>1?' too long':' too short')}); });
+        rows.push({i, name:noteName(t.notes[i].midi,key), cls:'bad', sev:1, lab:r>1?'long':'short', part:'held '+pctTxt((r-1)*100)+(r>1?' too long':' too short')}); });
       if(!any) goods.push('Even note lengths');
     }
-    return fixList(rows, general, goods, true);
+    return fixList(rows, general, goods, true, true);
   }
 
   function feedbackHTML(t, lens){
@@ -3136,9 +3148,9 @@ function renderFix(x, sr, plan){
     r.items.forEach((it,i)=>{
       if(it.status==='wrong') rows.push({i, name:nm0(i), cls:'bad', sev:0, part:'you played <span class="c-bad">'+noteName(it.played.midi,key)+'</span>'});
       else if(it.status==='missed') rows.push({i, name:nm0(i), cls:'miss', sev:0, part:'missed'});
-      else if(it.status==='tune') rows.push({i, name:nm0(i), cls:'tune', sev:2, part:Math.abs(it.cents)+' cents '+(it.cents>0?'sharp':'flat')});
+      else if(it.status==='tune') rows.push({i, name:nm0(i), cls:'tune', sev:2, lab:(it.cents>0?'+':'−')+Math.abs(it.cents), part:Math.abs(it.cents)+' cents '+(it.cents>0?'sharp':'flat')});
     });
-    if(R) R.flags.forEach(f=>rows.push({i:f.i, name:nm0(f.i), cls:'bad', sev:1,
+    if(R) R.flags.forEach(f=>rows.push({i:f.i, name:nm0(f.i), cls:'bad', sev:1, lab:f.pct!==undefined ? f.kind : f.kind,
       part: f.pct!==undefined ? 'held '+pctTxt(f.pct)+(f.kind==='long'?' too long':' too short') : beatsTxt(f.beats)+(f.kind==='early'?' early':' late')}));
     if(r.extra) general.push({cls:'ink', icon:'+', html:r.extra+' extra note'+(r.extra>1?'s':'')+' played'});
     if(fb.tune && played) intervalItems(played, key).forEach(x=>general.push({cls:'tune', icon:'↔', html:x.html}));
@@ -3150,7 +3162,7 @@ function renderFix(x, sr, plan){
     if(right===r.items.length && !r.extra) goods.push('Every note right');
     if(fb.tune && !rows.some(x=>x.cls==='tune') && right) goods.push('In tune');
     if(R && !R.flags.length) goods.push('Rhythm right');
-    return fixList(rows, general, goods, true);
+    return fixList(rows, general, goods, true, true);
   }
   function targetFeedbackHTML(r, key, R, played, tt){
     if(!fb.text) return '';
@@ -3201,7 +3213,8 @@ function renderFix(x, sr, plan){
     const {tempo, beats, q, lens, unfit} = rhythmOf(t);
     const lay = sheetLayout(paper), map=[];
     const FX=notesFix(t, lens);
-    q.forEach((e,i)=>{ if(FX.nums[i]) e.above=String(FX.nums[i]); });
+    const M=FX.marks||{};
+    q.forEach((e,i)=>{ if(M[i]) e.above=M[i].lab; });
     const abc = toAbc(q, tempo, clefFor(q.map(e=>e.midi)), lay.bars, t.key, beats, map); lastAbc=abc;
     const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
     paper.innerHTML='';
@@ -3210,10 +3223,7 @@ function renderFix(x, sr, plan){
     } else paper.innerHTML='<div class="sheet-empty">The notation library didn’t load. Check your connection and reload the page.</div>';
     $('sheetKey').textContent = keyLabel(t.key)+' · '+tempo+' bpm'+(unfit?' (first-note length doesn’t fit: auto)':'');
     meta.innerHTML=segHTML(t);
-    list.innerHTML = FX.html + notesTempo(t) + t.notes.map(n=>{
-      const c=devC(n.midi,n.cents,t.key), off=fb.tune && Math.abs(c)>=20, tip=off?(c>0?' sharp':' flat'):'';
-      return `<span class="${off?(c>0?'sharp':'flat'):''}" title="${c>0?'+':''}${c} cents${tip}">${noteName(n.midi,t.key)}${off?(c>0?'↑':'↓'):''}</span>`;
-    }).join(' ') + '<div>'+(FX.n?FIXBTN:'')+ASTARGET+SHARE+'</div>';
+    list.innerHTML = capHTML(M) + FX.html + notesTempo(t) + '<div>'+(FX.n?FIXBTN:'')+ASTARGET+SHARE+'</div>';
     hl={take:t, times:t.notes.map((n,i)=>[n.t0,n.t0+lens[i].a]), lens:fb.rhythm?lens:null, bars:[], els:noteGroups(paper,map), spans:[...list.querySelectorAll(':scope > span')], cur:-1};
     // colour notes on the staff like the feedback text: amber = out of tune, red = length far off
     const amber=css('--listen'), red=css('--rec');
@@ -3222,6 +3232,7 @@ function renderFix(x, sr, plan){
       const c = badLen ? red : fb.tune && Math.abs(devC(n.midi,n.cents,t.key))>=20 ? amber : null;
       if(c) (hl.els[i]||[]).forEach(g=>g.querySelectorAll('path,ellipse,circle').forEach(el=>{ el.style.fill=c; if(el.getAttribute('stroke') && el.getAttribute('stroke')!=='none') el.style.stroke=c; }));
     });
+    markStaff(hl.els, M); t.lastMarks=M;
     makeShareImage();
   }
 
@@ -3249,6 +3260,28 @@ function renderFix(x, sr, plan){
     if(sheetView==='pitch' || Math.abs(w-lastW)>40){ lastW=w; renderSheet(); } },200); });
 
   // The drawn note heads grouped by the event they belong to (a tied note has several).
+  // corrections on the staff: each marked note's label in its colour, the note tappable
+  const MARKC={bad:'--rec', tune:'--listen', miss:'--muted'};
+  function markStaff(els, M){
+    for(const i in M){ const c=css(MARKC[M[i].cls]||'--ink');
+      (els[i]||[]).forEach(g=>{ g.classList.add('marked'); g.querySelectorAll('text').forEach(tx=>{ tx.style.fill=c; tx.style.fontWeight='600'; }); }); }
+  }
+  // the line that says what is wrong with a tapped note (empty until then)
+  const capHTML=M=>Object.keys(M).length ? '<div class="fixcap" id="fixCap">Tap a coloured note to hear it right</div>' : '';
+  $('paper').addEventListener('click',e=>{
+    if(!hl || !hl.els || !shownTake || !shownTake.notes) return;
+    // the marked note nearest the tap (noteheads are small on a phone)
+    let g=e.target.closest('.abcjs-note.marked'), best=40;
+    if(!g) $('paper').querySelectorAll('.abcjs-note.marked').forEach(el=>{ const b=el.getBoundingClientRect();
+      const d=Math.hypot(Math.max(b.left-e.clientX,0,e.clientX-b.right), Math.max(b.top-e.clientY,0,e.clientY-b.bottom)); if(d<best){ best=d; g=el; } });
+    if(!g) return;
+    const i=hl.els.findIndex(a=>a && a.includes(g)); if(i<0) return;
+    const t=shownTake, M=t.lastMarks||{}, cap=$('fixCap');
+    if(!M[i]) return;
+    if(cap){ cap.innerHTML=M[i].txt+' <span class="c-miss">· yours, then right</span>'; cap.className='fixcap on fx-'+M[i].cls; }
+    const n=t.target ? t.target.notes.length : t.notes.length;
+    hearFixed(t, Math.max(0,i-1), Math.min(n-1,i+1), true);
+  });
   function noteGroups(paper, map){
     const out=[];
     paper.querySelectorAll('.abcjs-note').forEach((el,i)=>{ const k=map[i]; if(k===undefined) return; (out[k]=out[k]||[]).push(el); });
@@ -3414,24 +3447,28 @@ function renderFix(x, sr, plan){
     const R=fb.rhythm ? targetRhythm(t, r) : null;
     if(R && R.spb) lastTargetSpb[tt.str]=R.spb;
     const FX=targetFix(r, key, R, t.notes, tt);
+    const M=FX.marks||{};
     const ev=r.items.map((it,i)=>({midi:it.midi, s:tSpan(tt,i)[0], e:tSpan(tt,i)[1],
-      above: FX.nums[i] ? String(FX.nums[i]) : '',
+      above: M[i] ? M[i].lab : '',
       below: it.status==='wrong' ? noteName(it.played.midi,key) : ''}));
     const col={ok:css('--ok'), tune:css('--listen'), wrong:css('--rec'), missed:css('--muted')};
     const els=drawStaff(ev, key, r.items.map(it=>({color:col[it.status], faint:it.status==='missed'})), tBeats(tt));
+    markStaff(els, M); t.lastMarks=M;
     hl={take:t, target:true, times:r.items.map((it,i)=>it.played?[it.played.t0, it.played.t0+(R&&R.lens[i] ? R.lens[i].a : it.played.t1-it.played.t0)]:null),
       lens:R?R.lens:null, bars:[], els, cur:-1};
     const cnt={ok:0,tune:0,wrong:0,missed:0}; r.items.forEach(it=>cnt[it.status]++);
     const right=cnt.ok+cnt.tune, n=r.items.length;
     const dot=(c,txt)=>'<span><i style="background:'+c+'"></i>'+txt+'</span>';
     let html='<strong>'+(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+'</strong>';
-    if(!fb.text){
+    if(true){
       if(cnt.tune) html+=dot(col.tune, cnt.tune+' out of tune');
       if(cnt.wrong) html+=dot(col.wrong, cnt.wrong+' wrong');
       if(cnt.missed) html+=dot(col.missed, cnt.missed+' missed');
       if(r.extra) html+=dot(css('--ink'), r.extra+' extra');
     }
-    $('notelist').innerHTML='<div class="score">'+html+'</div>'+sightBar(t)+FX.html+targetTempo(t, r)+HEAR+(FX.n?FIXBTN:'')+SHARE+(tt.sight||tt.coach?'':SERIES_LINK);
+    const nr=R ? new Set(R.flags.map(f=>f.i)).size : 0;
+    if(nr) html+=dot(col.wrong, nr+' rhythm');
+    $('notelist').innerHTML='<div class="score">'+html+'</div>'+capHTML(M)+sightBar(t)+FX.html+targetTempo(t, r)+HEAR+(FX.n?FIXBTN:'')+SHARE+(tt.sight||tt.coach?'':SERIES_LINK);
     t.lastSummary=(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+(cnt.tune?', '+cnt.tune+' out of tune':'')+(cnt.wrong?', '+cnt.wrong+' wrong':'')+(cnt.missed?', '+cnt.missed+' missed':'');
     makeShareImage();
   }
@@ -3593,7 +3630,7 @@ function renderFix(x, sr, plan){
     $('targetIn').value=targetString(t); $('targetName').value=''; $('targetErr').textContent='';
     window.scrollTo({top:0, behavior:'smooth'});
   }
-  const ASTARGET='<button class="share astarget" aria-label="Use these notes as target notes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>Set as target</button>';
+  const ASTARGET='<button class="share ic astarget" title="Set as target: use these notes as the notes to play" aria-label="Use these notes as target notes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg><span class="lbl">Set as target</span></button>';
 
   // ---- report a problem: one JSON file with the take's audio and everything the app made of it ----
   let reportTake=null;

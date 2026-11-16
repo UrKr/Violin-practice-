@@ -175,9 +175,12 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   try 3 slows the metronome 10%; after 5 tries back to the whole exercise. Passage takes don't count for
   progress, ladder or recurring problems. The coach bar shows the problem, a play button and Skip; setting
   any other target ends the passage. Without target notes it plays 'Yours, fixed' when something is off.
-- **Readable mistakes** (`fixList`): one numbered row per note in plain words ('you played C4', 'held 37%
-  too long', '27 cents flat'), the same number above the note on the staff; wrong/missed, then rhythm,
-  then tuning; general points (intervals, extra notes, 'Most often') and a ✓ line for what went well.
+- **Mistakes on the staff** (`fixList(..., inline)`, `markStaff`): each problem note carries a short label in its
+  colour (the note played below a wrong one; above: '+27' / '−15' cents, 'long', 'short', 'early', 'late',
+  the most serious only). Tapping a marked note (nearest within 40 px) shows one line in plain words
+  ('C♯4 you played C4 · ¼ beat late') and plays it yours, then right. Below the staff only the counts,
+  general points (intervals, extra notes, 'Most often') and ✓ lines; a steady tempo is a ✓ line, the graph
+  shows only when something is off. The Summary keeps its numbered rows.
 - **Focus** (row under the metronome): All / Tuning / Rhythm / Notes / Zen set the Feedback switches in one
   tap (`FOCUS` presets: intonation, rhythm, written feedback; Zen = zen mode); no button is lit for a custom mix.
 - **Training** (notes panel): **Rhythm drill** (`makeDrill`, `DRILLS`): two bars of 4/4 on one open string
