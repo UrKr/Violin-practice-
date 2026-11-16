@@ -293,6 +293,11 @@ body.zen .sheet, body.zen .routine, body.zen #toast{display:none !important}
 .seriesbar button{height:34px; padding:0 12px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink); font-weight:600}
 body.series .sheet, body.series .routine, body.series .zenbar{display:none !important}
 .set .check.bk{flex-wrap:wrap; gap:6px 8px}
+.set .check.syncrow{gap:6px; flex-wrap:nowrap}
+.set .check.syncrow .share{margin:0}
+#syncOut{min-width:3.6em; text-align:center; color:var(--ink); font-variant-numeric:tabular-nums}
+.set .check.syncrow #syncMinus,.set .check.syncrow #syncPlus{width:30px; min-width:30px; padding:0; justify-content:center}
+.set .check.syncrow #syncGo{padding:0 10px}
 .set .check.bk .inc{display:flex; align-items:center; gap:6px; font-size:.84rem; color:var(--muted); font-weight:400}
 /* simpler settings: rarely changed rows only with 'Show all settings' */
 body:not(.allset) .set.adv{display:none !important}
@@ -471,6 +476,8 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
             <select id="ladderStep"><option value="2">2 bpm</option><option value="4" selected>4 bpm</option><option value="6">6 bpm</option></select></div>
           <div class="set"><label for="beatMode">Metronome</label>
             <select id="beatMode"><option value="visual">Visual only</option><option value="click">Click (with headphones)</option><option value="vibrate" id="vibOpt">Vibrate</option></select></div>
+          <div class="set" title="Bluetooth headphones play the click late, so you play late against the beat. Measure: play 8 short notes with the clicks; takes then line up with what you heard."><span>Sync</span>
+            <span class="check syncrow"><button class="share" id="syncGo">Measure</button><button class="share" id="syncMinus" aria-label="10 ms less">−</button><output id="syncOut">0 ms</output><button class="share" id="syncPlus" aria-label="10 ms more">+</button></span></div>
           <div class="set"><label for="bpb">Beats per bar</label>
             <select id="bpb"><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option></select></div>
           <div class="set adv"><label for="bpm">Tempo</label><input type="range" id="bpm" min="40" max="200" step="1" value="90"><output id="bpmVal"></output></div>
@@ -1854,6 +1861,7 @@ function renderFix(x, sr, plan){
   let target=null, sheetView='result', halfSpeed=false;
   // (coach: see 'Coach' below; declared here because setTarget ends its passage practice)
   // phase: 'whole' (play the exercise) | 'clean' (it was) | 'yours' / 'right' (the demo playing) | 'turn' (play the passage)
+  let syncMs=0, calib=null;   // metronome sync (see 'Sync' below; declared here because the settings load it early)
   const coach={on:false, full:null, a:0, b:0, tries:0, good:0, why:'', phase:'whole'};
   let coachSetting=false;
   function setTarget(str, quiet){
@@ -2713,7 +2721,7 @@ function renderFix(x, sr, plan){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:(t=>t&&!t.ear&&!t.sight?t.str:'')(coach.full||target),coach:coach.on,A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:(t=>t&&!t.ear&&!t.sight?t.str:'')(coach.full||target),coach:coach.on,A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked,sync:syncMs})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
     if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); coach.on=!!s.coach; $('coachBtn').setAttribute('aria-pressed',coach.on); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
@@ -2721,6 +2729,7 @@ function renderFix(x, sr, plan){
       if(s.fb) for(const k in fb) if(typeof s.fb[k]==='boolean') fb[k]=s.fb[k];
       if(s.pedal) $('pedal').value=s.pedal; if(s.inton) $('inton').value=s.inton; if(s.instr) $('instr').value=s.instr; if(s.beat) $('beatMode').value=s.beat; if(typeof s.autoSens==='boolean') $('autoSens').checked=s.autoSens;
       if(s.detail) $('detail').value=s.detail; if(s.zen) document.body.classList.add('zen');
+      if(typeof s.sync==='number') syncMs=s.sync;
       if(typeof s.barge==='boolean') $('bargeIn').checked=s.barge; else if(/iP(hone|ad|od)/.test(navigator.userAgent)) $('bargeIn').checked=false; }
   }catch(e){}
   $('bpb').addEventListener('change',()=>{ metro.bpb=+$('bpb').value; renderMetro(); save(); });
@@ -2845,6 +2854,7 @@ function renderFix(x, sr, plan){
     const db = 20*Math.log10(rms+1e-9);
     level = Math.max(0, Math.min(1, (db+60)/60));   // -60 dB..0 dB → 0..1
     if(tunerOpen){ tunerFeed(buf); return; }
+    if(calib){ calibFeed(buf, ac.currentTime); return; }
     // automatic sensitivity: while listening, the room's noise (the quiet 20% of the last ~6 s) sets
     // the trigger 12 dB above it. Sound that starts a take is above the trigger, so it barely counts.
     if(state==='listening' && $('autoSens').checked){
@@ -2900,7 +2910,7 @@ function renderFix(x, sr, plan){
 
     const ab=ac.createBuffer(1,total,sr); ab.copyToChannel(data,0);
     const take={id:++takeCounter, buffer:ab, dur:total/sr, audioStart:recAudioStart,
-      metro: metro.on ? {bpm:metro.bpm, bpb:metro.bpb, t0:metro.t0} : null,
+      metro: metro.on ? {bpm:metro.bpm, bpb:metro.bpb, t0:metro.t0+syncMs/1000} : null,   // (the player's sound lands syncMs after the beat)
       target: target ? {...target} : null};
     sheetView='result';
     if(take.metro){ // the bar the take starts in, from the moment it was triggered
@@ -3916,6 +3926,49 @@ function renderFix(x, sr, plan){
       clickedUpTo=k;
     }
   }
+  // ---- Sync: how late the player's sound arrives after the beat (Bluetooth output, the mic's own delay).
+  // The metronome plays a 4-beat count-in, then the player plays 8 short notes with it; each note's start
+  // (a jump in loudness, timed like a take) is compared with its beat. The median is kept when the notes
+  // agree (spread under 40 ms). A take's grid then starts that much later (take.metro.t0). ----
+  const renderSync=()=>{ $('syncOut').textContent=syncMs+' ms'; };
+  function calibFeed(buf, now){
+    const sr=ac.sampleRate, B=128, nb=Math.floor(buf.length/B), c=calib;
+    for(let k=0;k<nb;k++){
+      let e=0; for(let i=k*B;i<(k+1)*B;i++) e+=buf[i]*buf[i]; e=Math.sqrt(e/B);
+      const t=now-(buf.length-k*B)/sr, mn=c.hist.length ? Math.min(...c.hist) : e;
+      c.hist.push(e); if(c.hist.length>24) c.hist.shift();         // the last ~60 ms
+      if(e>0.008 && e>mn*5 && t-c.last>0.25){ c.last=t; c.on.push(t); }
+    }
+  }
+  async function measureSync(){
+    if(calib) return;
+    if(active){ toast('Stop listening first'); return; }
+    ensureAC(); try{ await ac.resume(); }catch(e){} anchorClock();
+    try{ if(!stream) await micOn(); }catch(e){ toast('The microphone is needed to measure'); return; }
+    const was={on:metro.on, t0:metro.t0}, bl=beatLen();
+    metro.on=true; metro.t0=clock()+0.4; clickedUpTo=-1; renderMetro();
+    calib={hist:[], on:[], last:-1};
+    const t0=metro.t0, B=12;                                      // 4 count-in + 8 played
+    $('syncGo').disabled=true;
+    const tick=setInterval(()=>{
+      const k=Math.floor((clock()-t0)/bl);
+      $('syncGo').textContent = k<4 ? 'Ready… '+(4-Math.max(0,k)) : k<B ? 'Play with the clicks '+(k-3)+'/8' : 'Measure';
+      if(k<B+1) return;
+      clearInterval(tick);
+      const offs=calib.on.map(t=>{ const j=Math.round((t-t0-0.1)/bl); return {j, d:t-(t0+j*bl)}; }).filter(x=>x.j>=4 && x.j<B && x.d>-0.15 && x.d<0.5).map(x=>x.d);
+      calib=null; $('syncGo').disabled=false; $('syncGo').textContent='Measure';
+      metro.on=was.on; if(!was.on) metro.t0=was.t0; clickedUpTo=-1; renderMetro();
+      if(!active) micOff();
+      if(offs.length<5){ toast('Not enough notes heard. Play short, clear notes with the clicks'); return; }
+      offs.sort((a,b)=>a-b); const med=offs[offs.length>>1], spread=offs.map(d=>Math.abs(d-med)).sort((a,b)=>a-b)[offs.length>>1];
+      if(spread>0.04){ toast('The notes were too uneven to measure. Try again'); return; }
+      syncMs=Math.max(0, Math.round(med*1000/5)*5); renderSync(); save();
+      toast('Sync: your notes arrive '+syncMs+' ms after the beat');
+    }, 100);
+  }
+  $('syncGo').onclick=e=>{ e.preventDefault(); measureSync(); };
+  $('syncMinus').onclick=e=>{ e.preventDefault(); syncMs=Math.max(0,syncMs-10); renderSync(); save(); };
+  $('syncPlus').onclick=e=>{ e.preventDefault(); syncMs=Math.min(600,syncMs+10); renderSync(); save(); };
   $('beatMode').addEventListener('change',()=>{ save(); clickedUpTo=-1;
     if($('beatMode').value==='click'){ ensureAC(); ac.resume(); anchorClock(); } });
   if(!navigator.vibrate){ $('vibOpt').remove(); if($('beatMode').value==='vibrate') $('beatMode').value='visual'; }
@@ -3944,7 +3997,8 @@ function renderFix(x, sr, plan){
 
     const ring=$('beatring');
     if(metro.on){
-      const pos=(clock()-metro.t0)/beatLen();
+      const outLat = $('beatMode').value==='click' && ac && ac.outputLatency>0.02 ? Math.min(0.5, ac.outputLatency) : 0;   // (Bluetooth: the click is heard this late)
+      const pos=(clock()-metro.t0-outLat)/beatLen();
       if(pos>=0){
         const idx=Math.floor(pos), frac=pos-idx, inBar=((idx%metro.bpb)+metro.bpb)%metro.bpb;
         const pulse=Math.max(0,1-frac*3.5), accent=inBar===0;
@@ -4058,7 +4112,7 @@ function renderFix(x, sr, plan){
   $('zenBox').checked=document.body.classList.contains('zen'); renderFocus(); renderLiveTog();
   loadLinkedExercise();
   if((()=>{ try{ return !localStorage.getItem('pib-guide'); }catch(e){ return false; } })()) setTimeout(showGuide, 600);
-  setState('idle'); pedalSync(); renderStrings(); renderSheet(); renderMetro(); renderRoutineBar(); renderCoachBar(); restoreTakes();
+  setState('idle'); pedalSync(); renderStrings(); renderSheet(); renderMetro(); renderRoutineBar(); renderCoachBar(); renderSync(); restoreTakes();
   requestAnimationFrame(draw);
 })();
 </script>

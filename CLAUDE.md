@@ -129,8 +129,10 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   `parseMusicXML`: per part staff 1, first voice; chords → top note; grace/cue notes dropped; ties joined;
   times rounded to sixteenths (tuplets approximated); a short first bar is a pickup (placed at the end of a
   full bar, shown with bar 1); implicit short bars elsewhere keep their length. `pieceTarget` turns bars a..b
-  into `M:.. K:.. notes` (a note tied in from before is a rest). Part chosen by instrument name; bars 1-16 or
-  to the end; 'Next ›' and a bar above the sheet (`pieceBar`) step through. Remembered in `pib-piece`.
+  into target notes (a note tied in from before is a rest). Part chosen by instrument name. The range is
+  `piece.a..piece.b` (bar indexes, 0 = 'pickup' when there is one): the panel's From / How many set it; the
+  bar above the sheet (`pieceBar`) moves either end by a bar (− / +, `pieceEdge`) and steps to the previous /
+  next section of the same length (‹ / Next ›, `pieceStep`). Remembered in `pib-piece`.
 - **Exercise links:** `?t=<notes>&n=<name>` loads and saves an exercise. **Play by ear:** a hidden random
   phrase in the generator's key, revealed after a take.
 - **Practice panel** (chart icon): practice time per day (`pib-time`), streak, and per-note intonation
@@ -142,7 +144,12 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   entry and optionally the recent takes in one JSON file.
 - **Pitch view:** vibrato rate/width/evenness and bow steadiness (`soundOf`), and Compare with another take.
 - **Metronome** (Settings > Tempo): visual only, click (scheduled on the audio clock; needs headphones so
-  the mic doesn't hear it) or vibrate (Android).
+  the mic doesn't hear it) or vibrate (Android). **Sync** (`syncMs`, saved in settings): Bluetooth output
+  (and the mic) make the player's sound arrive late against the beat. Measure (`measureSync`): 4-beat
+  count-in, then 8 short notes with the clicks; onsets (`calibFeed`, loudness jumps in 128-sample blocks,
+  timed like a take) against their beats, median kept unless the spread is over 40 ms; − / + adjust by 10.
+  A take's grid starts syncMs later (`take.metro.t0`), so its bars and the downbeat playback line up with
+  what was played. With the click, the beat ring is drawn `ac.outputLatency` late, when the click is heard.
 - **Automatic sensitivity** (Settings > Listening, on by default): while listening, the quiet 20% of the
   last ~6 s is the room's noise; the trigger goes 12 dB above it. The first ~0.5 s only measures.
 - **Interval intonation:** `intervalsOf` measures steps between connected notes against equal temperament
