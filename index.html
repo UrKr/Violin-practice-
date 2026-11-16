@@ -977,6 +977,19 @@ function detectNotes(data, sr, A4, detail=0, low=28){
     const o=notes[i], p=notes[i-1]; if(o.midi===p.midi) continue;
     for(let f=o.a; f>=Math.max(p.a+10, o.a-35); f--) if(onset[f]){ if(f<o.a){ o.a=f; p.b=Math.min(p.b,f-1); } break; }
   }
+  // ...and not before it: frames before an attack in a note's first 0.12 s (a ringing string under the
+  // end of the previous note) belong to the previous note.
+  for(let i=1;i<notes.length;i++){
+    const o=notes[i], p=notes[i-1]; if(o.midi===p.midi || o.a-p.b>6) continue;
+    for(let f=o.a+1; f<=Math.min(o.b-10, o.a+12); f++) if(onset[f]){ p.b=f-1; o.a=f; break; }
+  }
+  // A slurred change (no attack) shows a few frames of nothing clear between the notes while the sound
+  // goes on: share that gap (up to 0.15 s) between them, so neither looks shorter than it was.
+  for(let i=1;i<notes.length;i++){
+    const o=notes[i], p=notes[i-1], g=o.a-p.b-1; if(g<=0 || g>15) continue;
+    let on=true; for(let f=p.b+1; f<o.a; f++) if(rms[f]<gate) on=false;
+    if(on){ const mid=p.b+Math.ceil(g/2); p.b=mid; o.a=mid+1; }
+  }
   const res = notes.map(o=>{
     let s=0,c=0; for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && Math.abs(pitch[f]-o.midi)<0.6){ s+=pitch[f]-o.midi; c++; }
     return {midi:o.midi, t0:(o.a*hop)/fs, t1:(o.b*hop+W)/fs, cents:c?Math.round(100*s/c):0};
@@ -1090,8 +1103,8 @@ function guessTempo(notes){
   for(let bpm=40; bpm<=180; bpm+=0.5){
     const six=60/bpm/4; let sc=0;
     for(const v of iois){ const x=v/six; let e=Infinity; for(const [k,c] of NICE) e=Math.min(e, Math.abs(x-k)/k*3+c); sc+=e; }
-    // no preference between 50 and 140 bpm, a mild one outside; a tiny tie-break towards ~80
-    sc=sc/iois.length + 0.25*(bpm<50 ? Math.log(bpm/50)**2 : bpm>140 ? Math.log(bpm/140)**2 : 0) + 0.03*Math.log(bpm/80)**2;
+    // no preference between 50 and 140 bpm, a mild one below, a firmer one above; a tiny tie-break towards ~80
+    sc=sc/iois.length + (bpm<50 ? 0.25*Math.log(bpm/50)**2 : bpm>140 ? 1.2*Math.log(bpm/140)**2 : 0) + 0.03*Math.log(bpm/80)**2;   // (even notes at 0.3 s: eighths at ~100, not quarters at ~180)
     if(sc<bs){ bs=sc; best=bpm; }
   }
   // then fit the beat to all the note starts at once, so a slowly drifting tempo doesn't put the later

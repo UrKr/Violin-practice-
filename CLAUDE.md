@@ -113,7 +113,10 @@ neighbours, which an octave or two up lies on the line between them (D4 [G3] B4 
 up when the sound repeats there; without this the clean-up took a real D5 for an octave+fifth slip of the
 ringing G3 (report take221, quick arpeggio). Re-bowed repeated notes split on a dip below the note's median
 level, or below a third of the note just before it when the new note then holds at 35%+ of that peak for
-0.15 s (a soft second D after a loud first one; a fading note that only swells doesn't split). Limitation: a G3 as loud as
+0.15 s (a soft second D after a loud first one; a fading note that only swells doesn't split). Note times: a note
+starts at its own attack (frames before an attack in its first 0.12 s go to the previous note), and a gap of
+up to 0.15 s of continuing sound between two notes (a slur, unclear frames) is shared between them.
+`guessTempo` discourages tempos over 140 more firmly (even notes 0.3 s apart: eighths at ~100). Limitation: a G3 as loud as
 -6 dB under a G4 between notes a fifth away (D4 G4 D4) can't be told from a real G3. Test signals keep only ~0.35 s of silence at each end, like
 real takes: offline signals with long silences hid a noise-floor bug once. Also check the real reports
 (`tools/replay.mjs`) - a real violin's strong harmonics and room echo behave differently from synthesis.
