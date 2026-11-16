@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
 <style>
 :root{
   --bg:#F3F4F1; --surface:#FFFFFF; --ink:#18211C; --muted:#67736B; --line:#E1E5E0; --line2:#CDD4CE;
@@ -448,7 +448,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 .prog .ptxt{font-size:.9rem; margin-top:8px}
 @media (prefers-reduced-motion: reduce){ .orb{transition:none} .tuner .needle{transition:none} }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/abcjs@6.7.2/dist/abcjs-basic-min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/abcjs@6.7.2/dist/abcjs-basic-min.js" crossorigin="anonymous"></script>
 </head>
 <body>
 <main>
@@ -1784,7 +1784,9 @@ function renderFix(x, sr, plan){
       const r=fn(st); tx.oncomplete=()=>ok(r && r.result); tx.onerror=()=>bad(tx.error); }); }
     catch(e){ return null; }
   }
+  let askedPersist=false;
   function storeTake(t){
+    if(!askedPersist){ askedPersist=true; try{ navigator.storage && navigator.storage.persist && navigator.storage.persisted().then(p=>{ if(!p) navigator.storage.persist(); }); }catch(e){} }
     const x=t.buffer.getChannelData(0), pcm=new Int16Array(x.length);
     for(let i=0;i<x.length;i++){ const v=Math.max(-1,Math.min(1,x[i])); pcm[i]=v<0?v*0x8000:v*0x7fff; }
     return dbDo('readwrite', st=>st.put({id:t.id, sr:t.buffer.sampleRate, pcm:pcm.buffer, dur:t.dur, audioStart:t.audioStart,
@@ -1949,7 +1951,7 @@ function renderFix(x, sr, plan){
   function loadRoutineItem(i){
     routine.pos=Math.max(0,Math.min(i,routine.items.length-1)); routine.on=true; storeRoutine();
     const it=routine.items[routine.pos];
-    setTarget(it.str, true);
+    setTarget(it.str, true); followMeter();
     if(it.bpm){ if(!metro.on){ metro.on=true; metro.t0=clock()+0.05; } setMetroBpm(it.bpm); }
     streak=0; shownTake=null; sheetView='result';
     openTarget(false); save(); renderTakes(); renderSheet(); renderMetro(); renderRoutineBar(); refreshDrone();
@@ -1988,10 +1990,14 @@ function renderFix(x, sr, plan){
     const q=new URLSearchParams(location.search), str=q.get('t'); if(!str) return;
     const name=(q.get('n')||'').trim();
     if(setTarget(str, true) && target){
-      linkLoaded=true;
-      if(name && !saved.some(x=>x.name===name)){ saved.unshift({name, str}); storeSaved(); }
+      linkLoaded=true; followMeter();
+      let upd=false;
+      if(name){ const x=saved.find(x=>x.name===name);
+        if(!x){ saved.unshift({name, str: target.str}); storeSaved(); }
+        else if(x.str!==target.str){ x.str=target.str; upd=true; storeSaved(); } }
+      if(routine.on){ routine.on=false; storeRoutine(); renderRoutineBar(); }
       shownTake=null; sheetView='result'; save();
-      toast((name ? '“'+name+'”' : 'Exercise')+' loaded');
+      toast((name ? '“'+name+'”' : 'Exercise')+(upd ? ' updated' : ' loaded'));
     }
     try{ window.history.replaceState(null,'',location.pathname); }catch(e){}   // (the meter has its own 'history')
   }
@@ -2055,7 +2061,17 @@ function renderFix(x, sr, plan){
   // ---- a piece from a MusicXML file, a few bars at a time (pib-piece: the piece and where you are) ----
   let piece=null;
   try{ piece=JSON.parse(localStorage.getItem('pib-piece')||'null'); }catch(e){}
-  const storePiece=()=>{ try{ localStorage.setItem('pib-piece', JSON.stringify(piece)); }catch(e){ /* too big to keep: fine for this visit */ } };
+  if(piece && !(Array.isArray(piece.parts) && piece.parts.length && piece.parts.every(p=>p && Array.isArray(p.bars) && p.bars.length && Array.isArray(p.notes)))){ piece=null; try{ localStorage.removeItem('pib-piece'); }catch(e){} }
+  if(piece && !(piece.part>=0 && piece.part<piece.parts.length)) piece.part=0;
+  // A big score may not fit in the browser's storage: then keep only the part being practised, and if even
+  // that doesn't fit, nothing (for this visit only) rather than leave the previous piece behind.
+  const storePiece=()=>{
+    if(!piece) return;
+    try{ localStorage.setItem('pib-piece', JSON.stringify(piece)); return; }catch(e){}
+    try{ localStorage.setItem('pib-piece', JSON.stringify({...piece, parts:[piece.parts[piece.part]], part:0})); return; }catch(e){}
+    try{ localStorage.removeItem('pib-piece'); }catch(e){}
+    if(!storePiece.warned){ storePiece.warned=true; toast('This score is too big to keep after closing the app'); }
+  };
   function renderPiece(){
     $('mxPick').hidden=!piece;
     $('mxOpen').textContent = piece ? 'Open another…' : 'Open MusicXML…';
@@ -2451,7 +2467,7 @@ function renderFix(x, sr, plan){
   // ---- each exercise's recurring problems, kept for the practice plan (pib-issues) ----
   let issuesStore=null;
   function rememberIssues(t){
-    if(!t.target || t.target.ear || t.target.coach || sameTargetTakes(t.target).length<2) return;
+    if(!t.target || t.target.ear || t.target.sight || t.target.drill || t.target.coach || sameTargetTakes(t.target).length<2) return;
     issuesStore=issuesStore||loadJ('pib-issues',{});
     const S=summarize(t.target), plain=h=>h.replace(/<[^>]+>/g,'');
     issuesStore[t.target.str]={when:today(), K:S.K, top:S.issues.filter(x=>x.i>=0).slice(0,2).map(x=>({txt:noteName(t.target.notes[x.i],S.key)+' '+plain(x.part), n:x.n}))};
@@ -2487,7 +2503,7 @@ function renderFix(x, sr, plan){
     return '<label>Today</label><div class="plan">'+P.map((x,k)=>'<div class="pl"><div class="pt"><b></b><small>'+x.why.map(w=>w.replace(/</g,'&lt;')).join(' · ')+'</small></div><button data-plan="'+k+'">Practise</button></div>').join('')+'</div>';
   }
   function loadPlanItem(x){
-    setTarget(x.str, true);
+    setTarget(x.str, true); followMeter();
     if(x.bpm){ if(!metro.on){ metro.on=true; metro.t0=clock()+0.05; } setMetroBpm(x.bpm); }
     streak=0; shownTake=null; sheetView='result';
     openStats(false); save(); renderTakes(); renderSheet(); renderMetro(); refreshDrone();
@@ -2580,7 +2596,8 @@ function renderFix(x, sr, plan){
     const cnt={ok:0,tune:0,wrong:0,missed:0}; r.items.forEach(it=>cnt[it.status]++);
     const R=fb.rhythm ? targetRhythm(t, r) : null;
     const n=r.items.length, clean=(fb.tune ? cnt.ok : cnt.ok+cnt.tune)===n && !r.extra && !(R && R.flags.length);
-    recordProgress(t.target.str,{clean, right:cnt.ok+cnt.tune, total:n, inTune:cnt.ok, bpm:t.metro?t.metro.bpm:0});
+    if(!t.target.ear && !t.target.sight && !t.target.drill)    // (generated phrases aren't exercises to come back to)
+      recordProgress(t.target.str,{clean, right:cnt.ok+cnt.tune, total:n, inTune:cnt.ok, bpm:t.metro?t.metro.bpm:0});
     const need=+$('ladder').value;
     if(need && t.metro && metro.on){
       if(clean){
@@ -2726,7 +2743,7 @@ function renderFix(x, sr, plan){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:(t=>t&&!t.ear&&!t.sight?t.str:'')(coach.full||target),coach:coach.on,A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked,sync:syncMs})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:(t=>t&&!t.ear&&!t.sight&&!t.drill?t.str:'')(coach.full||target),coach:coach.on,A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked,sync:syncMs,gen:Object.fromEntries(['genKey','genType','genOct','earLen','drillType','backupTakes'].map(id=>[id, $(id).type==='checkbox' ? $(id).checked : $(id).value]))})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
     if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); coach.on=!!s.coach; $('coachBtn').setAttribute('aria-pressed',coach.on); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
@@ -2735,8 +2752,20 @@ function renderFix(x, sr, plan){
       if(s.pedal) $('pedal').value=s.pedal; if(s.inton) $('inton').value=s.inton; if(s.instr) $('instr').value=s.instr; if(s.beat) $('beatMode').value=s.beat; if(typeof s.autoSens==='boolean') $('autoSens').checked=s.autoSens;
       if(s.detail) $('detail').value=s.detail; if(s.zen) document.body.classList.add('zen');
       if(typeof s.sync==='number') syncMs=s.sync;
-      if(typeof s.barge==='boolean') $('bargeIn').checked=s.barge; else if(/iP(hone|ad|od)/.test(navigator.userAgent)) $('bargeIn').checked=false; }
+      if(typeof s.barge==='boolean') $('bargeIn').checked=s.barge;
+      if(s.gen){ for(const [id,v] of Object.entries(s.gen)) if($(id) && v!==undefined){ if($(id).type==='checkbox') $(id).checked=!!v; else $(id).value=v; } } }
+    // iPhone / iPad (also iPads that say they are Macs): the mic open during playback sends the sound to
+    // the earpiece, so 'Stop when I play' starts off there unless chosen
+    const iOSdev=/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+    if(!(s && typeof s.barge==='boolean') && iOSdev) $('bargeIn').checked=false;
   }catch(e){}
+  // whatever was restored must be something the controls allow (an old backup, a removed option)
+  metro.bpm=Math.max(30,Math.min(240,Math.round(+metro.bpm)||72)); metro.bpb=Math.max(2,Math.min(6,Math.round(+metro.bpb)||4)); $('bpb').value=metro.bpb;
+  document.querySelectorAll('.panel select, #dock select').forEach(sel=>{ if(sel.selectedIndex<0 && sel.options.length){ const d=[...sel.options].find(o=>o.defaultSelected)||sel.options[0]; sel.value=d.value; } });
+  $('bargeIn').addEventListener('change',save);
+  // the notes panel's choices are remembered too
+  const GEN_IDS=['genKey','genType','genOct','earLen','drillType','backupTakes'];
+  GEN_IDS.forEach(id=>$(id) && $(id).addEventListener('change',save));
   $('bpb').addEventListener('change',()=>{ metro.bpb=+$('bpb').value; renderMetro(); save(); });
   [thr,sil,rep,clefSel,bpm,autoBpm].forEach(el=>el.addEventListener('change',save));
   $('autoSens').addEventListener('change',()=>{ noiseLv=[]; updateLabels(); save(); });
@@ -4125,14 +4154,26 @@ function renderFix(x, sr, plan){
     if(!data || data.format!=='play-it-back-backup' || !data.store){ toast('That file isn’t a Play it back backup.'); return; }
     const n=Object.keys(data.store).length, t=(data.takes||[]).length;
     if(!confirm('Restore the backup from '+(data.saved||'').slice(0,10)+'? It replaces the settings, exercises, routine and practice history here'+(t?', and the recent recordings':'')+'.')) return;
-    for(const k of Object.keys(localStorage)) if(k.startsWith('pib-')) localStorage.removeItem(k);
-    for(const [k,v] of Object.entries(data.store)) if(k.startsWith('pib-')) localStorage.setItem(k,v);
+    // every value must be a string, and JSON where we store JSON; nothing is deleted before that is known
+    const entries=Object.entries(data.store).filter(([k])=>k.startsWith('pib-'));
+    const bad=entries.find(([k,v])=>typeof v!=='string' || (!['pib-guide','pib-allset'].includes(k) && (()=>{ try{ JSON.parse(v); return false; }catch(e){ return true; } })()));
+    if(bad){ toast('This backup is damaged ('+bad[0]+'). Nothing was changed.'); return; }
+    if(active) stop();
+    const old=Object.keys(localStorage).filter(k=>k.startsWith('pib-')).map(k=>[k,localStorage.getItem(k)]);
+    try{
+      for(const [k] of old) localStorage.removeItem(k);
+      for(const [k,v] of entries) localStorage.setItem(k,v);
+    }catch(e){
+      for(const k of Object.keys(localStorage)) if(k.startsWith('pib-')) localStorage.removeItem(k);
+      for(const [k,v] of old) try{ localStorage.setItem(k,v); }catch(e2){}
+      toast('The backup doesn’t fit in this browser’s storage. Nothing was changed.'); return;
+    }
     if(t){
       await forgetAllTakes();
       for(const r of data.takes){ const bin=atob(r.pcm), u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i);
         await dbDo('readwrite', st=>st.put({...r, pcm:u.buffer})); }
     }
-    toast('Restored. Reloading…'); setTimeout(()=>location.reload(), 600);
+    location.reload();   // at once: nothing still running may write over what was restored
   }
   $('backupBtn').onclick=e=>{ e.stopPropagation(); makeBackup(); };
   $('restoreBtn').onclick=e=>{ e.stopPropagation(); $('restoreFile').click(); };
