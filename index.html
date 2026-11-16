@@ -283,6 +283,11 @@ body:not(.allset) .set.adv{display:none !important}
 .tempo .fit{stroke:var(--muted); stroke-width:1; opacity:.5}
 .tempo .ln{fill:none; stroke:var(--play); stroke-width:1.5; opacity:.6}
 .tempo .tax{font-size:.72rem; color:var(--muted); margin-top:2px}
+.sightbar{display:flex; align-items:center; gap:10px; margin:6px 0 4px; padding:8px 8px 8px 12px; border-radius:12px; background:color-mix(in srgb, var(--play) 10%, var(--surface)); font-size:.88rem}
+.sightbar .tx{flex:1; min-width:0; color:var(--ink); word-spacing:normal}
+.sightbar .tx b{font-weight:650}
+.sightbar .tx small{display:block; color:var(--muted); font-size:.78rem}
+.sightbar button{height:36px; padding:0 14px; border-radius:10px; border:none; background:var(--play); color:#fff; font-weight:600}
 .genhint{color:var(--muted); font-size:.78rem; margin-top:6px}
 .ear-wait{text-align:center; padding:22px 8px 10px; color:var(--muted)}
 .ear-wait b{display:block; color:var(--ink); font-size:1.05rem; font-weight:600; margin-bottom:4px}
@@ -517,6 +522,14 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
             <button id="drillGo">New drill</button>
           </div>
           <div class="genhint">Two bars on one open string; only the rhythm is judged. Turns the metronome on.</div>
+        </div>
+        <div class="gen">
+          <div class="genlab">Sight-reading</div>
+          <div class="genrow ear">
+            <select id="sightLvl" aria-label="Level"><option value="1">Level 1</option><option value="2">Level 2</option><option value="3">Level 3</option><option value="4">Level 4</option></select>
+            <button id="sightGo">New phrase</button>
+          </div>
+          <div class="genhint">A short phrase you haven't seen: play it straight from the page. The level goes up after 3 good ones in a row, down after 2 weak ones.</div>
         </div>
         <div class="saved" id="savedList"></div>
         <div class="gen">
@@ -1526,6 +1539,59 @@ function stretch(x, rate){
     toast('Rhythm drill: only timing counts. Metronome at '+metro.bpm+' bpm.');
   };
 
+  // ---- sight-reading: a phrase you haven't seen, by level; the level adapts (pib-sight) ----
+  const SIGHT={
+    1:{keys:[0,7], bars:1, span:7, steps:[1], rhythm:[[1,1,1,1]]},
+    2:{keys:[0,7,2,5], bars:2, span:9, steps:[1,1,2], rhythm:[[1,1,1,1],[2,1,1],[1,1,2],[2,2],[1,2,1]]},
+    3:{keys:[0,7,2,9,5,10], bars:2, span:11, steps:[1,1,2,3,4], rhythm:DRILLS.basic},
+    4:{keys:[0,7,2,9,4,5,10,3,8], bars:2, span:14, steps:[1,1,2,2,3,4,5,7], rhythm:[].concat(DRILLS.basic,DRILLS.dotted,DRILLS.sync)},
+  };
+  let sightSt=null; try{ sightSt=JSON.parse(localStorage.getItem('pib-sight')||'null'); }catch(e){}
+  sightSt=sightSt||{level:1, good:0, weak:0};   // (loaded here directly: the loadJ helper is defined further down)
+  function makeSight(level){
+    const L=SIGHT[level], pc=pick(L.keys), up=makeScale(pc,'major',2,instr().strings[0]).slice(0,15);
+    const durs=[]; for(let b=0;b<L.bars;b++) durs.push(...pick(L.rhythm));
+    let d = level===1 ? 0 : pick([0,2,4]); const seq=[up[d]];
+    for(let i=1;i<durs.length;i++){
+      let st=pick(L.steps)*(Math.random()<0.5?-1:1), nd=d+st;
+      if(nd<0 || nd>L.span) nd=d-st;
+      nd=Math.max(0,Math.min(L.span,nd));
+      if(i===durs.length-1) nd = d<=3 ? 0 : d>=11 ? 14 : 7;      // end on the tonic nearest
+      if(nd===d && i<durs.length-1) nd = d<L.span ? d+1 : d-1;
+      d=nd; seq.push(up[d]);
+    }
+    return compactTarget(seq, durs);
+  }
+  function newSight(){
+    const level=+$('sightLvl').value||sightSt.level;
+    const str=makeSight(level);
+    if(!setTarget(str, true)) return;
+    target.sight={level}; $('targetIn').value=str; $('targetName').value='';
+    shownTake=null; sheetView='result'; openTarget(false); renderTakes(); renderSheet();
+  }
+  // after each take of a sight-reading phrase: good (90%+ right, rhythm right) / weak (under 60%)
+  function sightResult(t){
+    const tt=t.target, key=keyOf(tt.notes), r=judge(alignTarget(tt.notes, t.notes, tt.hasOct), key);
+    const right=r.items.filter(it=>it.status==='ok'||(it.status==='tune'&&!fb.tune)).length/r.items.length;
+    const R=fb.rhythm ? targetRhythm(t, r) : null, rhythmOk=!R || !R.flags.length;
+    const lvl=sightSt.level;
+    if(right>=0.9 && rhythmOk){ sightSt.good++; sightSt.weak=0; if(sightSt.good>=3 && sightSt.level<4){ sightSt.level++; sightSt.good=0; toast('Sight-reading: up to level '+sightSt.level+'!'); } }
+    else if(right<0.6){ sightSt.weak++; sightSt.good=0; if(sightSt.weak>=2 && sightSt.level>1){ sightSt.level--; sightSt.weak=0; toast('Sight-reading: back to level '+sightSt.level+' for a bit.'); } }
+    else { sightSt.good=0; sightSt.weak=0; }
+    t.sightVerdict = right>=0.9 && rhythmOk ? 'good' : right<0.6 ? 'weak' : 'ok';
+    saveJ('pib-sight',sightSt); $('sightLvl').value=String(sightSt.level);
+    if(lvl!==sightSt.level) $('sightLvl').value=String(sightSt.level);
+  }
+  function sightBar(t){
+    if(!t.target || !t.target.sight) return '';
+    const v=t.sightVerdict, msg = v==='good' ? 'Well read!' : v==='weak' ? 'Tricky one: try another' : 'Nearly';
+    return '<div class="sightbar"><span class="tx"><b>'+msg+'</b><small>Sight-reading level '+sightSt.level+(sightSt.good?' · '+sightSt.good+' good in a row':'')+'</small></span><button data-sight-next>Next phrase</button></div>';
+  }
+  $('sightLvl').value=String(sightSt.level);
+  $('sightLvl').addEventListener('change',()=>{ sightSt.level=+$('sightLvl').value; sightSt.good=0; sightSt.weak=0; saveJ('pib-sight',sightSt); });
+  $('sightGo').onclick=e=>{ e.stopPropagation(); newSight(); };
+  $('sheet').addEventListener('click',e=>{ if(e.target.closest('[data-sight-next]')){ e.stopPropagation(); $('sightLvl').value=String(sightSt.level); newSight(); } });
+
   function renderStrings(){
     $('drillStr').innerHTML=instr().strings.map(m=>'<option value="'+m+'">'+noteName(m,KEYS[0]).replace(/-?\d+$/,'')+' string</option>').join('');
     $('drillStr').value=String(instr().strings[instr().strings.length-2]);   // (A on violin, G on viola/cello)
@@ -1555,7 +1621,7 @@ function stretch(x, rate){
 
   function openTarget(open){
     $('targetPanel').hidden=!open; $('targetBtn').setAttribute('aria-expanded',open);
-    if(open){ $('settings').open=false; if(tunerOpen) openTuner(false); if(statsOpen) openStats(false); $('targetIn').value=target&&!target.ear?target.str:''; renderSaved(); renderRoutineList(); }
+    if(open){ $('settings').open=false; if(tunerOpen) openTuner(false); if(statsOpen) openStats(false); $('targetIn').value=target&&!target.ear&&!target.sight?target.str:''; renderSaved(); renderRoutineList(); }
   }
   $('targetBtn').onclick=e=>{ e.stopPropagation(); openTarget($('targetPanel').hidden); };
   const useTarget=()=>{ if(setTarget($('targetIn').value)){ streak=0; setTimeout(refreshDrone,0); shownTake=null; sheetView='result'; openTarget(false); save(); renderTakes(); renderSheet(); } };
@@ -1885,6 +1951,7 @@ function stretch(x, rate){
   // ---- after each take: score it, log it, climb the tempo ladder ----
   let streak=0, pendingBpm=null;
   function onAnalyzed(t){
+    if(t.target && t.target.sight && t.notes && t.notes.length) sightResult(t);
     if(!t.target || !t.notes || document.body.classList.contains('zen')) return;
     const r=judge(alignTarget(t.target.notes, t.notes, t.target.hasOct), keyOf(t.target.notes));
     const cnt={ok:0,tune:0,wrong:0,missed:0}; r.items.forEach(it=>cnt[it.status]++);
@@ -1931,7 +1998,7 @@ function stretch(x, rate){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target&&!target.ear?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target&&!target.ear&&!target.sight?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
     if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
@@ -2673,7 +2740,8 @@ function stretch(x, rate){
     }
     const key=keyOf(target.notes);
     hl={take:null, target:true, els:drawStaff(targetEvents(target), key, null, tBeats(target)), cur:-1};
-    $('notelist').innerHTML=HEAR+progressHTML(target.str)+SERIES_LINK;
+    $('notelist').innerHTML = target.sight ? '<div class="sightbar"><span class="tx"><b>Read it, then play</b><small>Sight-reading level '+target.sight.level+' · no listening first</small></span></div>'
+      : HEAR+progressHTML(target.str)+SERIES_LINK;
   }
 
   function renderResult(t){
@@ -2702,7 +2770,7 @@ function stretch(x, rate){
       if(cnt.missed) html+=dot(col.missed, cnt.missed+' missed');
       if(r.extra) html+=dot(css('--ink'), r.extra+' extra');
     }
-    $('notelist').innerHTML='<div class="score">'+html+'</div>'+FX.html+targetTempo(t, r)+HEAR+SHARE+SERIES_LINK;
+    $('notelist').innerHTML='<div class="score">'+html+'</div>'+sightBar(t)+FX.html+targetTempo(t, r)+HEAR+SHARE+(tt.sight?'':SERIES_LINK);
     t.lastSummary=(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+(cnt.tune?', '+cnt.tune+' out of tune':'')+(cnt.wrong?', '+cnt.wrong+' wrong':'')+(cnt.missed?', '+cnt.missed+' missed':'');
     makeShareImage();
   }

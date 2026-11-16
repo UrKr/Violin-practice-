@@ -143,6 +143,15 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   then tuning; general points (intervals, extra notes, 'Most often') and a ✓ line for what went well.
 - **Focus** (row under the metronome): All / Tuning / Rhythm / Notes / Zen set the Feedback switches in one
   tap (`FOCUS` presets: intonation, rhythm, written feedback; Zen = zen mode); no button is lit for a custom mix.
+- **Training** (notes panel): **Rhythm drill** (`makeDrill`, `DRILLS`): two bars of 4/4 on one open string
+  (quarters & eighths, dotted, syncopation, rests, mixed); switches focus to Rhythm and the metronome on.
+  **Sight-reading** (`makeSight`, `SIGHT` levels 1-4: length, keys, leaps, rhythms; ends on the tonic):
+  no Hear it before playing; after each take good (90%+ right, rhythm right) / weak (<60%); 3 good in a row
+  = level up, 2 weak = level down (`pib-sight`); 'Next phrase' in the result. Drill / sight / ear targets
+  aren't kept as the saved target. A target on one pitch class gets no key signature (`keyOf`).
+- **Tempo graph** (`tempoHTML`, under the feedback when rhythm is judged): tempo per note (written beats /
+  seconds between starts, lengths as written at the player's own tempo), straight-line trend, scatter;
+  'speeds up / slows down from X to Y', 'steady (±n)', 'rushing / dragging N%' vs the metronome.
 - **Routine** (notes panel): exercises in order, each with its own tempo (`pib-routine`); a bar above the
   sheet steps through them; the position and any tempo change (ladder or +/-) are remembered per exercise.
 
