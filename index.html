@@ -272,6 +272,13 @@ body.zen .sheet, body.zen .routine, body.zen #toast{display:none !important}
 .fix .what{flex:1; min-width:0}
 .fix .what small{color:var(--muted)}
 .fix .freq{color:var(--muted); font-size:.78rem; white-space:nowrap}
+.excerpt{font-size:.8rem; color:var(--muted); margin:2px 2px 4px}
+.excerpt.hint{opacity:.8}
+.notepop{position:absolute; z-index:20; display:flex; flex-wrap:wrap; gap:4px; max-width:240px; padding:6px; border-radius:10px;
+  background:var(--surface); border:1px solid var(--line2); box-shadow:var(--shadow-lg)}
+.notepop button{height:30px; padding:0 10px; border-radius:8px; border:1px solid var(--line2); background:var(--surface); color:var(--ink); font-weight:600; font-size:.82rem}
+.sheet{position:relative}
+#paper .abcjs-note{cursor:pointer}
 .legend{font-size:.8rem; color:var(--muted); margin:2px 2px 0}
 .legend span{font-weight:600}
 .fixcap{font-size:.84rem; color:var(--muted); padding:4px 8px; margin:2px 0 4px; border-radius:8px; background:var(--bg)}
@@ -2051,11 +2058,14 @@ function renderFix(x, sr, plan){
   // (coach: see 'Coach' below; declared here because setTarget ends its passage practice)
   // phase: 'whole' (play the exercise) | 'clean' (it was) | 'yours' / 'right' (the demo playing) | 'turn' (play the passage)
   let syncMs=0, calib=null, micId='', outId='';
-  const model={on:false, phase:null};   // Model mode (see 'Model' below; declared early because the settings load it)   // (micId / outId: the chosen input and output devices, '' = default)   // metronome sync (see 'Sync' below; declared here because the settings load it early)
+  const model={on:false, phase:null};
+  // the notes chosen from the target: src = the full notes, from..to (indexes), skip = notes left out
+  let excerpt=null, excerptSetting=false;   // Model mode (see 'Model' below; declared early because the settings load it)   // (micId / outId: the chosen input and output devices, '' = default)   // metronome sync (see 'Sync' below; declared here because the settings load it early)
   const coach={on:false, full:null, a:0, b:0, tries:0, good:0, why:'', phase:'whole'};
   let coachSetting=false;
   let drillPrev=null;   // the Focus and metronome before a rhythm drill, put back after it
   function setTarget(str, quiet){
+    if(!excerptSetting && !coachSetting) excerpt=null;
     if(playing && playing.take && playing.take.id==='target'){ stopPlayback(); afterPlayback(); }
     const wasDrill=!!(target && target.drill);
     if(!coachSetting && coach.full){ coach.full=null; coach.tries=0; coach.good=0; coach.phase='whole'; setTimeout(renderCoachBar,0); }
@@ -2350,7 +2360,7 @@ function renderFix(x, sr, plan){
   $('mxNext').onclick=e=>{ e.stopPropagation(); pieceStep(1); };
   // above the sheet while practising the piece: the bars (each end can move by a bar), previous / next
   function renderPieceBar(){
-    const bar=$('pieceBar'), on=!!(piece && target && piece.str===target.str && !rtItem() && !coach.full);
+    const bar=$('pieceBar'), on=!!(piece && target && piece.str===(excerpt && target.excerpt ? excerpt.src : target.str) && !rtItem() && !coach.full);
     bar.hidden=!on; if(!on) return;
     const part=piece.parts[piece.part], n=part.bars.length, [a,b]=pieceRange();
     bar.querySelector('b').textContent=piece.title||piece.file||'Piece';
@@ -2955,7 +2965,7 @@ function renderFix(x, sr, plan){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,unit:metro.unit,beatSel:metro.beatSel,sub:metro.sub,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:(t=>t&&!t.ear&&!t.sight&&!t.drill?t.str:'')(coach.full||target),coach:coach.on,A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked,sync:syncMs,mic:micId,out:outId,model:model.on,modelHow:$('modelHow').value,gen:Object.fromEntries(['genKey','genType','genOct','earLen','drillType','backupTakes'].map(id=>[id, $(id).type==='checkbox' ? $(id).checked : $(id).value]))})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,unit:metro.unit,beatSel:metro.beatSel,sub:metro.sub,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:(t=>t&&!t.ear&&!t.sight&&!t.drill?t.str:'')(coach.full||target),coach:coach.on,A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked,sync:syncMs,mic:micId,out:outId,model:model.on,modelHow:$('modelHow').value,excerpt:excerpt,gen:Object.fromEntries(['genKey','genType','genOct','earLen','drillType','backupTakes'].map(id=>[id, $(id).type==='checkbox' ? $(id).checked : $(id).value]))})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
     if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; if([0.25,0.5,1,1.5,2].includes(s.unit)) metro.unit=s.unit; if(s.beatSel) metro.beatSel=String(s.beatSel); if(s.sub>=1 && s.sub<=4) metro.sub=s.sub; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); coach.on=!!s.coach; $('coachBtn').setAttribute('aria-pressed',coach.on); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
@@ -2966,6 +2976,7 @@ function renderFix(x, sr, plan){
       if(typeof s.sync==='number') syncMs=s.sync;
       if(typeof s.mic==='string') micId=s.mic; if(typeof s.out==='string') outId=s.out;
       model.on=!!s.model; if(s.modelHow) $('modelHow').value=s.modelHow;
+      if(s.excerpt && s.excerpt.src && target && !target.ear){ excerpt=s.excerpt; target.excerpt=true; }
       if(typeof s.barge==='boolean') $('bargeIn').checked=s.barge;
       if(s.gen){ for(const [id,v] of Object.entries(s.gen)) if($(id) && v!==undefined){ if($(id).type==='checkbox') $(id).checked=!!v; else $(id).value=v; } } }
     // iPhone / iPad (also iPads that say they are Macs): the mic open during playback sends the sound to
@@ -3735,6 +3746,56 @@ function renderFix(x, sr, plan){
   }
   // the line that says what is wrong with a tapped note (empty until then)
   const capHTML=M=>Object.keys(M).length ? '<div class="fixcap" id="fixCap">Tap a coloured note to hear it right</div>' : '';
+  // ---- choosing notes: tap a note of the notes to play -> Start here / End here / Leave out ----
+  function excerptApply(ex){
+    const S=parseTarget(ex.src); if(S.error) return;
+    const n=S.notes.length; ex.from=Math.max(0,Math.min(ex.from,n-1)); ex.to=Math.max(ex.from,Math.min(ex.to,n-1));
+    ex.skip=ex.skip.filter(i=>i>=ex.from && i<=ex.to);
+    const keep=[]; for(let i=ex.from;i<=ex.to;i++) if(!ex.skip.includes(i)) keep.push(i);
+    if(!keep.length){ toast('That leaves no notes'); return; }
+    if(ex.from===0 && ex.to===n-1 && !ex.skip.length){ excerptReset(); return; }
+    const bar=S.meter ? lyBeats(S.meter) : qBpb(), lead=S.durs ? S.onsets[ex.from]%bar : 0, key=keyOf(S.notes);
+    const str=writeLy({notes:keep.map(i=>S.notes[i]), names:keep.map(i=>S.names[i]), durs:S.durs?keep.map(i=>S.durs[i]):null,
+      onsets:S.durs?keep.map(i=>S.onsets[i]-S.onsets[ex.from]+lead):null, meter:S.meter, key:keyName(key), bare:!S.hasOct});
+    excerpt=ex; excerptSetting=true; setTarget(str, true); excerptSetting=false;
+    if(target){ target.excerpt=true; target.tempo=S.tempo||0; }
+    shownTake=null; save(); renderSheet(); renderModelBar();
+  }
+  function excerptReset(){
+    const src=excerpt && excerpt.src; excerpt=null; if(!src) return;
+    setTarget(src, true); $('targetIn').value=src; shownTake=null; save(); renderSheet();
+  }
+  function notePop(i, x, y){
+    closeNotePop();
+    const ex=excerpt && target.excerpt ? excerpt : null, skipped=ex && ex.skip.includes(i), out=ex && (i<ex.from || i>ex.to);
+    const pop=document.createElement('div'); pop.className='notepop'; pop.id='notePop';
+    pop.innerHTML='<button data-a="from">Start here</button><button data-a="to">End here</button>'+(skipped||out ? '' : '<button data-a="skip">Leave out</button>')+(skipped ? '<button data-a="back">Put back</button>' : '')+(ex ? '<button data-a="reset">All notes</button>' : '');
+    const sheet=$('sheet'), r=sheet.getBoundingClientRect();
+    pop.style.left=Math.max(8, Math.min(r.width-220, x-r.left-60))+'px'; pop.style.top=(y-r.top+14)+'px';
+    sheet.appendChild(pop);
+    pop.addEventListener('click',ev=>{ ev.stopPropagation(); const a=ev.target.closest('button'); if(!a) return; closeNotePop();
+      const base=ex ? {...ex, skip:[...ex.skip]} : {src:target.str, from:0, to:target.notes.length-1, skip:[]};
+      if(a.dataset.a==='reset') return excerptReset();
+      if(a.dataset.a==='from'){ base.from=i; if(base.to<i) base.to=(ex?parseTarget(ex.src):target).notes.length-1; }
+      if(a.dataset.a==='to'){ base.to=i; if(base.from>i) base.from=0; }
+      if(a.dataset.a==='skip') base.skip.push(i);
+      if(a.dataset.a==='back') base.skip=base.skip.filter(k=>k!==i);
+      excerptApply(base);
+    });
+  }
+  function closeNotePop(){ const p=$('notePop'); if(p) p.remove(); }
+  document.addEventListener('click',e=>{ if(!e.target.closest('#notePop')) closeNotePop(); }, true);
+  $('sheet').addEventListener('click',e=>{ if(e.target.closest('.ex-reset')){ e.stopPropagation(); excerptReset(); } });
+  $('paper').addEventListener('click',e=>{
+    if(shownTake || !hl || !hl.target || !hl.els || !target || target.ear || target.sight || (target.coach && coach.full)) return;
+    if(state==='recording') return;
+    let g=e.target.closest('.abcjs-note'), best=40;
+    if(!g) $('paper').querySelectorAll('.abcjs-note').forEach(el=>{ const b=el.getBoundingClientRect();
+      const d=Math.hypot(Math.max(b.left-e.clientX,0,e.clientX-b.right), Math.max(b.top-e.clientY,0,e.clientY-b.bottom)); if(d<best){ best=d; g=el; } });
+    if(!g) return;
+    const i=hl.els.findIndex(a=>a && a.includes(g)); if(i<0) return;
+    e.stopPropagation(); notePop(i, e.clientX, e.clientY);
+  });
   $('paper').addEventListener('click',e=>{
     if(!hl || !hl.els || !shownTake || !shownTake.notes) return;
     // the marked note nearest the tap (noteheads are small on a phone)
@@ -4082,9 +4143,15 @@ function renderFix(x, sr, plan){
       $('notelist').innerHTML=(evP && evP.length ? '<div class="legend">Upper staff: what you played. <span class="c-bad">Red</span> wrong note, <span class="c-tune">amber</span> off in time or tune, <span class="c-ok">green</span> right.</div>' : '')+'<div class="hearrow">'+HEAR+'</div>';
       return;
     }
-    hl={take:null, target:true, els:drawStaff(targetEvents(target), key, null, tBeats(target)), cur:-1};
-    $('notelist').innerHTML = target.sight ? '<div class="sightbar"><span class="tx"><b>Read it, then play</b><small>Sight-reading level '+target.sight.level+' · no listening first</small></span></div>'
-      : '<div class="hearrow">'+HEAR+MXBTN+'</div>'+(target.coach?'':progressHTML(target.str)+SERIES_LINK);
+    if(excerpt && target.excerpt){
+      const S=parseTarget(excerpt.src), mc=css('--muted'), skip=new Set(excerpt.skip);
+      hl={take:null, target:true, src:S, els:drawStaff(targetEvents(S), keyOf(S.notes), S.notes.map((m,i)=>i>=excerpt.from && i<=excerpt.to && !skip.has(i) ? null : {color:mc, faint:true}), tBeats(S)), cur:-1};
+    } else hl={take:null, target:true, els:drawStaff(targetEvents(target), key, null, tBeats(target)), cur:-1};
+    const exLine = target.sight ? '' : excerpt && target.excerpt
+      ? '<div class="excerpt">Notes '+(excerpt.from+1)+'–'+(excerpt.to+1)+(excerpt.skip.length?', '+excerpt.skip.length+' left out':'')+' <button class="lnk ex-reset">Reset</button></div>'
+      : '<div class="excerpt hint">Tap a note to start or end there, or to leave it out</div>';
+    $('notelist').innerHTML = exLine + (target.sight ? '<div class="sightbar"><span class="tx"><b>Read it, then play</b><small>Sight-reading level '+target.sight.level+' · no listening first</small></span></div>'
+      : '<div class="hearrow">'+HEAR+MXBTN+'</div>'+(target.coach?'':progressHTML(target.str)+SERIES_LINK));
   }
 
   function renderResult(t){

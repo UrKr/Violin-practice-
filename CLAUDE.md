@@ -157,6 +157,12 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   `piece.a..piece.b` (bar indexes, 0 = 'pickup' when there is one): the panel's From / How many set it; the
   bar above the sheet (`pieceBar`) moves either end by a bar (− / +, `pieceEdge`) and steps to the previous /
   next section of the same length (‹ / Next ›, `pieceStep`). Remembered in `pib-piece`.
+- **Choosing notes** (`excerpt`, `notePop`, `excerptApply`): in the target view (no take shown, not ear /
+  sight / a coach passage), tapping a note opens a small menu: Start here / End here / Leave out (or Put back) /
+  All notes. `excerpt={src, from, to, skip:[]}` keeps the full notes; the target becomes the chosen notes
+  (left-out notes are rests, the first note keeps its place in the bar), so judging, Hear it, Model, Coach and
+  series all use the selection. The staff shows the whole source with the rest faint and 'Notes a–b, n left out
+  Reset'. Saved in settings (`excerpt`); any other target clears it (`excerptSetting` guards our own setTarget).
 - **Exercise links:** `?t=<notes>&n=<name>` loads and saves an exercise. **Play by ear:** a hidden random
   phrase in the generator's key, revealed after a take.
 - **Practice panel** (chart icon): practice time per day (`pib-time`), streak, and per-note intonation
