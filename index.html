@@ -272,6 +272,8 @@ body.zen .sheet, body.zen .routine, body.zen #toast{display:none !important}
 .fix .what{flex:1; min-width:0}
 .fix .what small{color:var(--muted)}
 .fix .freq{color:var(--muted); font-size:.78rem; white-space:nowrap}
+.legend{font-size:.8rem; color:var(--muted); margin:2px 2px 0}
+.legend span{font-weight:600}
 .fixcap{font-size:.84rem; color:var(--muted); padding:4px 8px; margin:2px 0 4px; border-radius:8px; background:var(--bg)}
 .fixcap.on{color:var(--ink)}
 .fixcap.fx-bad b{color:var(--rec)} .fixcap.fx-tune b{color:var(--listen)} .fixcap.fx-miss b{color:var(--muted)}
@@ -1167,8 +1169,9 @@ function noteName(m,key){ const {L,a,oct}=spell(m,key); return L+(a>0?'♯':a<0?
 
 // `map`, if given, gets one entry per drawn note head (tied pieces included):
 // the index of the event it belongs to. Used to light up the note being played.
-function toAbc(ev,bpm,mode,barsPerLine,key,beats,map,keepLast){
+function toAbc(ev,bpm,mode,barsPerLine,key,beats,map,keepLast,opt={}){
   key=key||KEYS[0]; beats=beats||4;
+  const REST=opt.rest||'z';
   let meter=beats+'/4';
   if(typeof beats==='string'){ meter=beats; const [n,d]=beats.split('/'); beats=n*4/d; }   // '6/8': 3 quarter beats a bar
   const BAR=beats*4, VALID=[16,12,8,6,4,3,2,1];
@@ -1177,18 +1180,19 @@ function toAbc(ev,bpm,mode,barsPerLine,key,beats,map,keepLast){
   if(mode==='bass' || mode==='alto' || mode==='tenor') clef=mode;
   else if(mode==='auto' && ev.length){ const ms=ev.map(e=>e.midi).sort((a,b)=>a-b); if(ms[ms.length>>1]<57) clef='bass'; }
   let body='', pos=0, bars=0, acc={};
+  let forceAcc=false;
   const pitchStr=m=>{
     m+=shift; const {L,a,oct}=spell(m,key), k=L+oct;
     const cur = (k in acc) ? acc[k] : (key.sig[L]||0);
     let pre='';
-    if(cur!==a){ pre = a>0?'^':a<0?'_':'='; acc[k]=a; }
+    if(cur!==a || forceAcc){ pre = a>0?'^':a<0?'_':'='; acc[k]=a; }
     return pre+(oct>=5? L.toLowerCase()+"'".repeat(oct-5) : L+",".repeat(4-oct));
   };
   let ann='', evIdx=-1;
   const piece=(len,midi,tie)=>{
     if(map && midi!==null) map.push(evIdx);
     body += ann; ann='';
-    body += (midi===null?'z':pitchStr(midi)) + (len>1?len:'') + (tie?'-':'');
+    body += (midi===null?REST:pitchStr(midi)) + (len>1?len:'') + (tie?'-':'');
     pos+=len;
     if(pos%4===0) body+=' ';
     if(pos%BAR===0){ body+='| '; bars++; acc={}; if(bars%barsPerLine===0) body+='\n'; }
@@ -1216,17 +1220,18 @@ function toAbc(ev,bpm,mode,barsPerLine,key,beats,map,keepLast){
   // and stretch the last line across the width when it's at least half full, so a short take
   // isn't squeezed into the left half of the staff.
   let stretch=false;
-  if(ev.length){
-    const B=Math.max(1,Math.ceil(Math.max(...ev.map(e=>e.e))/BAR)), lines=Math.ceil(B/barsPerLine);
+  if(ev.length || opt.total){
+    const B=Math.max(1,Math.ceil(Math.max(opt.total||0, ...ev.map(e=>e.e))/BAR)), lines=Math.ceil(B/barsPerLine);
     barsPerLine=Math.ceil(B/lines);
     const lastBars=B-(lines-1)*barsPerLine;
     stretch = lastBars*2>=barsPerLine;
   }
   const q=x=>x.replace(/"/g,"'");
   for(const [i,e] of ev.entries()){ if(e.s>pos) segment(e.s-pos,null);
-    evIdx=i;
+    evIdx=i; forceAcc=!!e.acc;
     ann=(e.above?'"^'+q(e.above)+'"':'')+(e.below?'"_'+q(e.below)+'"':'');
     segment(e.e-e.s,e.midi); }
+  if(opt.total && pos<opt.total) segment(opt.total-pos,null);
   if(pos%BAR) segment(BAR-(pos%BAR),null);
   body=body.trim().replace(/\|\s*$/,'')+'|]';
   return `X:1\n${stretch?'%%stretchlast 1\n':''}%%annotationfont sans-serif 9\nM:${meter}\nL:1/16\nQ:1/4=${bpm}\nK:${key.name} clef=${clef}\n${body}\n`;
@@ -2627,7 +2632,7 @@ function renderFix(x, sr, plan){
   function coachTarget(str){ coachSetting=true; setTarget(str, true); coachSetting=false; if(target && coach.full) target.coach=true; }
   function coachBack(msg){
     if(coach.full){ coachTarget(coach.full.str); target.coach=false; coach.full=null; }
-    coach.tries=0; coach.good=0; coach.phase='whole'; coach.slower=0;
+    coach.tries=0; coach.good=0; coach.phase='whole'; coach.slower=0; coach.take=null;
     if(msg) toast(msg);
     shownTake=null; sheetView='result'; renderCoachBar(); renderSheet();
   }
@@ -2644,7 +2649,7 @@ function renderFix(x, sr, plan){
     if(!coach.full){                                // the whole exercise
       if(!iss.length){ coach.phase='clean'; renderCoachBar(); resume(); return; }
       const P=coachPassage(t, iss), full=target && target.str===t.target.str ? target : t.target;
-      coach.full={...full}; coach.a=P.a; coach.b=P.b; coach.why=P.why; coach.tries=0; coach.good=0; coach.slower=0;
+      coach.full={...full}; coach.a=P.a; coach.b=P.b; coach.why=P.why; coach.tries=0; coach.good=0; coach.slower=0; coach.take=t;
       coachTarget(passageStr(t.target, P.a, P.b));
       shownTake=null; renderSheet();
       hearFixed(t, P.a, P.b, true, true);
@@ -2653,10 +2658,10 @@ function renderFix(x, sr, plan){
     if(!iss.length){                                // the passage, right
       coach.good++;
       if(coach.good>=2) coachBack('Got it ✓ Now the whole piece');
-      else { coach.phase='turn'; renderCoachBar(); shownTake=null; renderSheet(); }
+      else { coach.phase='turn'; coach.take=t; renderCoachBar(); shownTake=null; renderSheet(); }
       resume(); return;
     }
-    coach.good=0; coach.tries++; coach.why=iss[0].txt;
+    coach.good=0; coach.tries++; coach.why=iss[0].txt; coach.take=t;
     if(coach.tries>=5){ coachBack('Let’s leave that for now. The whole piece again'); resume(); return; }
     if(coach.tries===3 && metro.on){ setMetroBpm(Math.max(30, Math.round(metro.bpm*0.9))); coach.slower=metro.bpm; }
     shownTake=null; renderSheet();
@@ -3427,6 +3432,58 @@ function renderFix(x, sr, plan){
     paper.querySelectorAll('.abcjs-note').forEach((el,i)=>{ const k=map[i]; if(k===undefined) return; (out[k]=out[k]||[]).push(el); });
     return out;
   }
+  // What was played in the coach's passage, as notes on the whole piece's grid (sixteenths), at the
+  // take's own tempo and offset (targetRhythm), an octave shift of the alignment taken out; each with a
+  // colour: bad = wrong or extra note, tune = right note but off in time, length or tuning, ok = right.
+  function playedOver(t, F){
+    if(!t || !t.notes || !t.target || !F.durs) return null;
+    const tt=t.target, key=keyOf(tt.notes), r=judge(alignTarget(tt.notes, t.notes, tt.hasOct), key), R=targetRhythm(t, r);
+    if(!R) return null;
+    const toFull = tt.coach ? b=>b-tt.onsets[0]+F.onsets[coach.a] : b=>b;
+    const S=F.onsets[coach.a], E=F.onsets[coach.b]+F.durs[coach.b];
+    const st=new Map(); r.items.forEach((it,i)=>{ if(it.played) st.set(it.played,{it,i}); });
+    const flagged=new Set(R.flags.map(f=>f.i)), kinds={}; R.flags.forEach(f=>(kinds[f.i]=kinds[f.i]||new Set()).add(f.kind));
+    const ev=[];
+    for(const n of t.notes){
+      const x=st.get(n), L=x && R.lens[x.i] ? R.lens[x.i].a : n.t1-n.t0;
+      let b0=toFull((n.t0-R.off)/R.spb), b1=b0+L/R.spb;
+      // only what was judged wrong is drawn as played: an unflagged start sits where it is written, an
+      // unflagged length is the written length (small wobbles would only clutter the staff)
+      if(x){ const k=kinds[x.i]||new Set(), w0=toFull(tt.onsets[x.i]), wl=tt.durs[x.i];
+        if(!k.has('early') && !k.has('late')) b0=w0;
+        b1 = (k.has('long') || k.has('short')) ? b0+L/R.spb : b0+wl; }
+      if(b0<S-0.25 || b0>E-0.1) continue;                  // notes that start in the passage
+      const cls = !x || x.it.status==='wrong' ? 'bad' : (flagged.has(x.i) || x.it.status==='tune') ? 'tune' : 'ok';
+      ev.push({midi:n.midi-r.shift, s:Math.max(0,Math.round(b0*4)), e:Math.max(0,Math.round(b1*4)), cls});
+    }
+    ev.sort((p,q)=>p.s-q.s);
+    const out=[]; for(const e of ev){ const pv=out[out.length-1]; if(pv && e.s<pv.e){ if(e.s<=pv.s) continue; pv.e=e.s; } if(e.e>e.s) out.push(e); }
+    return out;
+  }
+  // An ossia: the bars a0..a1 (indexes) of the written notes, with what was played on its own staff above
+  // them, bar for bar (invisible rests where nothing was played). Returns the written notes' groups by
+  // their index in ev, like drawStaff.
+  function drawOssia(ev, key, colors, beats, evP, a0, a1){
+    const paper=$('paper'), lay=sheetLayout(paper), clef=clefFor(ev.map(e=>e.midi));
+    const BAR=(typeof beats==='string' ? lyBeats(beats) : beats)*4, s0=a0*BAR, s1=(a1+1)*BAR;
+    const cut=list=>list.map((e,i)=>({...e, idx:i})).filter(e=>e.e>s0 && e.s<s1).map(e=>({...e, s:Math.max(e.s,s0)-s0, e:Math.min(e.e,s1)-s0}));
+    const W=cut(ev), P=cut(evP), map=[], mapP=[];
+    const a2=toAbc(W,60,clef,lay.bars,key,beats,map,true,{total:s1-s0}), a1x=toAbc(P,60,clef,lay.bars,key,beats,mapP,true,{total:s1-s0, rest:'x'});
+    const split=a=>{ const L=a.split('\n'), k=L.findIndex(l=>/^K:/.test(l)); return {head:L.slice(0,k).filter(l=>!/^Q:/.test(l)), K:L[k], body:L.slice(k+1).filter(l=>l.trim())}; };
+    const A=split(a2), B=split(a1x), cl=(A.K.match(/clef=(\w+)/)||[])[1]||'treble';
+    let abc=A.head.join('\n')+'\n%%score 1 2\n'+A.K+'\nV:1 clef='+cl+'\nV:2 clef='+cl+'\n';
+    A.body.forEach((l,i)=>{ abc+='[V:1] '+(B.body[i]||'')+'\n[V:2] '+l+'\n'; });
+    lastAbc=abc; paper.innerHTML='';
+    if(!window.ABCJS){ paper.innerHTML='<div class="sheet-empty">The notation library didn’t load.</div>'; return []; }
+    ABCJS.renderAbc(paper, abc, {responsive:'resize', add_classes:true, foregroundColor:css('--ink'), staffwidth:lay.staffwidth, paddingleft:0, paddingright:0, paddingtop:14});
+    const paint=(g,c,op)=>{ g.querySelectorAll('path,ellipse,circle').forEach(el=>{ el.style.fill=c; if(el.getAttribute('stroke') && el.getAttribute('stroke')!=='none') el.style.stroke=c; }); if(op) g.style.opacity=op; };
+    const PC={ok:[css('--ok'),''], tune:[css('--listen'),''], bad:[css('--rec'),'']};
+    paper.querySelectorAll('.abcjs-note.abcjs-v0').forEach((g,i)=>{ const e=P[mapP[i]]; if(e) paint(g, PC[e.cls][0]); });
+    const out=[];
+    paper.querySelectorAll('.abcjs-note.abcjs-v1').forEach((g,i)=>{ const e=W[map[i]]; if(!e) return; const c=colors&&colors[e.idx];
+      if(c){ paint(g,c.color); if(c.faint) g.style.opacity='.4'; } (out[e.idx]=out[e.idx]||[]).push(g); });
+    return out;
+  }
   function drawStaff(ev, key, colors, beats=4){
     const paper=$('paper'), lay=sheetLayout(paper), map=[];
     let abc=toAbc(ev, 60, clefFor(ev.map(e=>e.midi)), lay.bars, key, beats, map, true).replace(/^Q:.*\n/m,''); lastAbc=abc;
@@ -3470,7 +3527,7 @@ function renderFix(x, sr, plan){
       const dev=(P(i)-(off+T(i)*spb))/spb;
       if(k>0 && Math.abs(dev)>=0.25) flags.push({i, kind:dev<0?'early':'late', beats:dev});
     });
-    return {lens, flags, spb};
+    return {lens, flags, spb, off};
   }
   // (a drill on one note has no key: no key signature rather than A major for a row of A's)
   function keyOf(midis){ if(midis.key){ const k=KEYS.find(k=>k.name===midis.key); if(k) return k; }
@@ -3581,8 +3638,12 @@ function renderFix(x, sr, plan){
       // practising a passage: the whole piece, the passage in colour and the rest faded
       const F=coach.full, pc=css('--play'), mc=css('--muted');
       $('sheetTitle').textContent='Notes to play'; $('sheetMeta').textContent='notes '+(coach.a+1)+'–'+(coach.b+1)+' in colour';
-      hl={take:null, target:true, els:drawStaff(targetEvents(F), keyOf(F.notes), F.notes.map((m,i)=>i>=coach.a && i<=coach.b ? {color:pc} : {color:mc, faint:true}), tBeats(F)), cur:-1};
-      $('notelist').innerHTML='<div class="hearrow">'+HEAR+'</div>';
+      const cols=F.notes.map((m,i)=>i>=coach.a && i<=coach.b ? {color:css('--ink')} : {color:mc, faint:true});
+      const evP=playedOver(coach.take, F);
+      const evF=targetEvents(F), BAR=(typeof tBeats(F)==='string' ? lyBeats(tBeats(F)) : tBeats(F))*4;
+      hl={take:null, target:true, els: evP && evP.length ? drawOssia(evF, keyOf(F.notes), cols, tBeats(F), evP, Math.floor(evF[coach.a].s/BAR), Math.floor((evF[coach.b].e-1)/BAR))
+        : drawStaff(targetEvents(F), keyOf(F.notes), F.notes.map((m,i)=>i>=coach.a && i<=coach.b ? {color:pc} : {color:mc, faint:true}), tBeats(F)), cur:-1};
+      $('notelist').innerHTML=(evP && evP.length ? '<div class="legend">Upper staff: what you played. <span class="c-bad">Red</span> wrong note, <span class="c-tune">amber</span> off in time or tune, <span class="c-ok">green</span> right.</div>' : '')+'<div class="hearrow">'+HEAR+'</div>';
       return;
     }
     hl={take:null, target:true, els:drawStaff(targetEvents(target), key, null, tBeats(target)), cur:-1};

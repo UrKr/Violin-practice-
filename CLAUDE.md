@@ -201,7 +201,13 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   a take), Your turn (listening for the passage); the coach bar (always there while Coach is on) says
   'Play the whole piece…', '✓ Clean', or 'Practise notes 3–5', the problem, Listen / Your turn / Right!
   Once more / Not yet, try 2 of 5, and two dots for the two right takes, with ▶ (hear it right) and Skip;
-  the staff shows the whole piece with the passage in colour and the rest faded. Without target notes it plays 'Yours, fixed' when something is off.
+  the staff shows the whole piece with the passage in colour and the rest faded. Once there is a take, an
+  ossia (`drawOssia`, two staves via `%%score 1 2`, only the bars of the passage): above, what was played
+  (`playedOver`: the take's notes on the piece's grid at its own tempo and offset from `targetRhythm`,
+  octave shift removed; unflagged starts and lengths drawn as written, only flagged timing shown as played;
+  red wrong or extra, amber off in time or tune, green right; invisible rests elsewhere); below, the
+  written bars, the passage in ink and its neighbours faded. `toAbc(..., opt)` takes {total, rest:'x'} so
+  both staves break into the same bars. Without target notes it plays 'Yours, fixed' when something is off.
 - **Mistakes on the staff** (`fixList(..., inline)`, `markStaff`): each problem note carries a short label in its
   colour (the note played below a wrong one; above: '+27' / '−15' cents, 'long', 'short', 'early', 'late',
   the most serious only). Tapping a marked note (nearest within 40 px) shows one line in plain words
