@@ -460,13 +460,14 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
       <details class="settings" id="settings">
         <summary aria-label="Settings"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></summary>
         <div class="panel">
-          <section class="sgrp" id="grpListening" data-dock>
-          <div class="sgroup">Listening</div>
-          <div class="set adv"><label for="thr">Sensitivity</label><input type="range" id="thr" min="0.15" max="0.9" step="0.01" value="0.45"><output id="thrVal"></output></div>
-          <div class="set adv"><span></span><label class="check"><input type="checkbox" id="autoSens" checked> Set from the room's noise</label></div>
-          <div class="set"><span>Playback</span><label class="check"><input type="checkbox" id="bargeIn" checked> Stop when I play <span id="bargeNote"></span></label></div>
-          <div class="set"><label for="sil">Stop after</label><input type="range" id="sil" min="0.5" max="5" step="0.1" value="1.5"><output id="silVal"></output></div>
-          <div class="set"><label for="rep">Repeat</label><input type="range" id="rep" min="0" max="4" step="1" value="1"><output id="repVal"></output></div>
+          <section class="sgrp" id="grpFeedback" data-dock>
+          <div class="sgroup">Feedback</div>
+          <div class="set"><span>Show</span><label class="check"><input type="checkbox" id="fbText" checked> Written feedback</label></div>
+          <div class="set"><span></span><label class="check"><input type="checkbox" id="fbLive" checked> Live note while playing</label></div>
+          <div class="set adv"><span></span><label class="check"><input type="checkbox" id="fbTune" checked> Intonation</label></div>
+          <div class="set adv"><span></span><label class="check"><input type="checkbox" id="fbRhythm" checked> Rhythm (note lengths)</label></div>
+          <div class="set adv"><span></span><label class="check"><input type="checkbox" id="fbFollow" checked> Highlight while playing</label></div>
+          <div class="set adv"><span>Zen</span><label class="check"><input type="checkbox" id="zenBox"> Just listen: no notes or feedback</label></div>
           </section>
           <section class="sgrp" id="grpTempo">
           <div class="sgroup">Tempo</div>
@@ -482,6 +483,14 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
             <select id="bpb"><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option></select></div>
           <div class="set adv"><label for="bpm">Tempo</label><input type="range" id="bpm" min="40" max="200" step="1" value="90"><output id="bpmVal"></output></div>
           <div class="set adv"><span></span><label class="check"><input type="checkbox" id="autoBpm" checked> Detect from my playing</label></div>
+          </section>
+          <section class="sgrp" id="grpListening" data-dock>
+          <div class="sgroup">Listening</div>
+          <div class="set"><span>Playback</span><label class="check"><input type="checkbox" id="bargeIn" checked> Stop when I play <span id="bargeNote"></span></label></div>
+          <div class="set"><label for="sil">Stop after</label><input type="range" id="sil" min="0.5" max="5" step="0.1" value="1.5"><output id="silVal"></output></div>
+          <div class="set"><label for="rep">Repeat</label><input type="range" id="rep" min="0" max="4" step="1" value="1"><output id="repVal"></output></div>
+          <div class="set adv"><label for="thr">Sensitivity</label><input type="range" id="thr" min="0.15" max="0.9" step="0.01" value="0.45"><output id="thrVal"></output></div>
+          <div class="set adv"><span></span><label class="check"><input type="checkbox" id="autoSens" checked> Set from the room's noise</label></div>
           </section>
           <section class="sgrp" id="grpPitch" data-dock>
           <div class="sgroup">Pitch</div>
@@ -504,15 +513,6 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
               <option value="tenor">Tenor</option>
               <option value="guitar">Guitar</option>
             </select></div>
-          </section>
-          <section class="sgrp" id="grpFeedback" data-dock>
-          <div class="sgroup">Feedback</div>
-          <div class="set adv"><span>Zen</span><label class="check"><input type="checkbox" id="zenBox"> Just listen: no notes or feedback</label></div>
-          <div class="set"><span>Show</span><label class="check"><input type="checkbox" id="fbText" checked> Written feedback</label></div>
-          <div class="set"><span></span><label class="check"><input type="checkbox" id="fbLive" checked> Live note while playing</label></div>
-          <div class="set adv"><span></span><label class="check"><input type="checkbox" id="fbTune" checked> Intonation</label></div>
-          <div class="set adv"><span></span><label class="check"><input type="checkbox" id="fbRhythm" checked> Rhythm (note lengths)</label></div>
-          <div class="set adv"><span></span><label class="check"><input type="checkbox" id="fbFollow" checked> Highlight while playing</label></div>
           </section>
           <section class="sgrp" id="grpControls">
           <div class="sgroup">Controls</div>
@@ -2844,7 +2844,19 @@ function renderFix(x, sr, plan){
     silentSince=null; recStart=now; liveReset(); setState('recording');
   }
   function prerollLen0(){ return chunks.reduce((a,c)=>a+c.length,0); }
-  function silenceLimit(){ return metro.on ? Math.max(1,Math.round(+sil.value))*beatLen() : +sil.value; }
+  // How long a silence ends a take. With target notes that have rests, a written rest is not the end: until
+  // the last note has started (live note tracking), wait out the longest rest still to come plus a beat
+  // (at the metronome's tempo, or the tempo of the last take of these notes).
+  function silenceLimit(){
+    const base = metro.on ? Math.max(1,Math.round(+sil.value))*beatLen() : +sil.value, tt=target;
+    if(!tt || !tt.durs || tt.notes.length<2) return base;
+    const at = fb.live ? live.idx : -1;
+    if(at>=tt.notes.length-1) return base;                 // the last note is under way
+    let rest=0; for(let i=Math.max(0,at); i<tt.notes.length-1; i++) rest=Math.max(rest, tt.onsets[i+1]-(tt.onsets[i]+tt.durs[i]));
+    if(rest<=0) return base;
+    const beat = metro.on ? beatLen() : (lastTargetSpb[tt.str] || 60/metro.bpm);
+    return Math.max(base, (rest+1)*beat + 0.3);
+  }
 
   function onAudio(e){
     const input = e.inputBuffer.getChannelData(0);
@@ -3526,6 +3538,7 @@ function renderFix(x, sr, plan){
     ensureAC(); await ac.resume(); anchorClock();
     if(state==='recording') return;
     if(!durs){ durs=notes.map(()=>1); onsets=notes.map((m,i)=>i); }
+    else if(onsets[0]>0){ const lead=onsets[0]; onsets=onsets.map(o=>o-lead); }   // (a leading rest: start with the first note)
     const sr=44100, beat=60/metro.bpm, total=onsets[onsets.length-1]+durs[durs.length-1], len=Math.ceil((total*beat+0.6)*sr);
     const OC=window.OfflineAudioContext||window.webkitOfflineAudioContext, oc=new OC(1,len,sr);
     const out=oc.createGain(); out.gain.value=0.5; out.connect(oc.destination);
@@ -4021,7 +4034,7 @@ function renderFix(x, sr, plan){
       document.querySelectorAll('.sgrp[data-dock]').forEach(g=>dock.appendChild(g));
       dock.hidden=false;
     } else {
-      ['grpListening','grpTempo','grpPitch','grpFeedback','grpControls'].forEach(id=>panel.insertBefore($(id),panel.querySelector('.moreset')));
+      ['grpFeedback','grpTempo','grpListening','grpPitch','grpControls'].forEach(id=>panel.insertBefore($(id),panel.querySelector('.moreset')));
       dock.hidden=true;
     }
   }

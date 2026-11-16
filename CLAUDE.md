@@ -6,6 +6,11 @@ Hosted on GitHub Pages from the `main` branch. Changes should be committed to `m
 
 ## What it does
 - **Loop:** listens, records when sound starts, stops after silence, plays the take back, listens again.
+  With target notes that have rests, a written rest doesn't end the take: `silenceLimit()` waits out the
+  longest rest still ahead plus a beat (metronome tempo, or that target's last tempo) until the last note
+  has started (live tracking). A leading rest needs nothing: takes start at the first sound, rhythm is
+  judged relative, and with the metronome the first note lands where it was played in the bar ('Hear it'
+  skips a leading rest).
 - **Transcription:** each take becomes sheet music (abcjs, loaded from jsDelivr, pinned version).
   YIN pitch detection on a downsampled signal; notes split only on clear re-articulation
   (bowed notes swell and fade); short blips and octave/octave+fifth errors are absorbed.
@@ -49,9 +54,10 @@ speed-up ladder, manual tempo, notes detail, drone note, clef, the single feedba
 Browser tests start fresh, so they set `pib-guide` (and `pib-allset` to reach hidden settings) first.
 
 ## Layout
-Phones: one column, all settings behind the settings button. At 1100px and wider: two columns; the
-Listening, Pitch and Feedback setting groups (`.sgrp[data-dock]`) are moved into the main window
-under the big button (`placeSettings()`), Tempo and Controls stay in the menu.
+Phones: one column, all settings behind the settings button. Settings run from the most to the least
+often changed: Feedback, Tempo, Listening, Pitch, Controls (and within a group the hidden rows last).
+At 1100px and wider: two columns; the Feedback, Listening and Pitch setting groups (`.sgrp[data-dock]`)
+are moved into the main window under the big button (`placeSettings()`), Tempo and Controls stay in the menu.
 
 ## Important details
 - **iPhone:** while the mic is open, iOS routes audio to the earpiece. The app closes the mic before
