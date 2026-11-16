@@ -282,7 +282,7 @@ body.zen .sheet, body.zen .routine, body.zen #toast{display:none !important}
 .fix .fixplay svg{width:10px; height:10px; margin-left:1px}
 .goods{display:flex; flex-wrap:wrap; gap:2px 12px; color:var(--ok); font-weight:600; font-size:.82rem; margin:3px 2px 2px}
 /* series: N takes back to back, no playback or feedback between them, then the summary */
-.serieslink{display:inline-flex; align-items:center; gap:4px; margin:8px 0 0; font-size:.8rem; color:var(--muted); vertical-align:middle}
+.serieslink{display:inline-flex; align-items:center; gap:4px; margin:8px 0 0 8px; font-size:.8rem; color:var(--muted); vertical-align:middle}
 .serieslink button{height:30px; min-width:36px; padding:0 7px; border-radius:8px; border:1px solid var(--line2); background:var(--surface); color:var(--ink); font-weight:600}
 .seriesbar{display:flex; align-items:center; gap:10px; background:var(--surface); border:1px solid var(--line); border-radius:12px;
   padding:6px 6px 6px 12px; margin-bottom:8px; box-shadow:var(--shadow); font-size:.9rem}
@@ -405,6 +405,8 @@ dialog.report .heard{color:var(--muted); font-size:.85rem; line-height:1.6; marg
 dialog.report .heard b{font-weight:600; color:var(--ink); font-size:.75rem; margin-right:2px}
 dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 .sheet-head .left{display:flex; align-items:baseline; gap:8px; min-width:0}
+@media (max-width:520px){ .sheet-head .left{flex-direction:column; align-items:flex-start; gap:0} }
+@media (max-width:360px){ .metro{flex-wrap:wrap; justify-content:center} .set .check.syncrow{flex-wrap:wrap} }
 .metro .drone{padding:0 14px; margin-left:6px; color:var(--muted); font-weight:600; font-size:.92rem}
 .metro .drone[aria-pressed="true"]{background:var(--play); border-color:var(--play); color:var(--bg)}
 .metro:not(.on) .step{visibility:hidden}
@@ -554,7 +556,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           <div class="genlab">Scale or arpeggio</div>
           <div class="genrow sc">
             <select id="genKey" aria-label="Key"><option value="0">C</option><option value="1">C♯/D♭</option><option value="2">D</option><option value="3">E♭</option><option value="4">E</option><option value="5">F</option><option value="6">F♯</option><option value="7" selected>G</option><option value="8">A♭/G♯</option><option value="9">A</option><option value="10">B♭</option><option value="11">B</option></select>
-            <select id="genType" aria-label="Type"><option value="major">Major</option><option value="natural">Natural minor</option><option value="harmonic">Harmonic minor</option><option value="melodic">Melodic minor</option><option value="arpMajor">Major arpeggio</option><option value="arpMinor">Minor arpeggio</option><option value="thirds">Broken thirds</option></select>
+            <select id="genType" aria-label="Type"><option value="major">Major</option><option value="natural">Minor (natural)</option><option value="harmonic">Minor (harm.)</option><option value="melodic">Minor (mel.)</option><option value="arpMajor">Major arp.</option><option value="arpMinor">Minor arp.</option><option value="thirds">Broken 3rds</option></select>
             <select id="genOct" aria-label="Octaves"><option value="1">1 oct</option><option value="2" selected>2 oct</option><option value="3">3 oct</option></select>
             <button id="genGo">Fill in</button>
           </div>
@@ -646,7 +648,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 
   <div class="routine" id="routineBar" hidden></div>
   <div class="routine coachbar" id="coachBar" hidden></div>
-  <div class="routine piecebar" id="pieceBar" hidden><span class="nm"><b></b><br><small class="rng">bars <button data-k="a-" title="Start a bar earlier" aria-label="Start a bar earlier">−</button><span class="ra"></span><button data-k="a+" title="Start a bar later" aria-label="Start a bar later">+</button> – <button data-k="b-" title="End a bar earlier" aria-label="End a bar earlier">−</button><span class="rb"></span><button data-k="b+" title="End a bar later" aria-label="End a bar later">+</button> <span class="of"></span></small></span><button class="prev" aria-label="Previous bars" title="The bars before">‹</button><button class="next" title="The next bars">Next ›</button></div>
+  <div class="routine piecebar" id="pieceBar" hidden><span class="nm"><b></b><br><small class="rng">bars <button data-k="a-" title="Start a bar earlier" aria-label="Start a bar earlier">−</button><span class="ra"></span><button data-k="a+" title="Start a bar later" aria-label="Start a bar later">+</button> to <button data-k="b-" title="End a bar earlier" aria-label="End a bar earlier">−</button><span class="rb"></span><button data-k="b+" title="End a bar later" aria-label="End a bar later">+</button> <span class="of"></span></small></span><button class="prev" aria-label="Previous bars" title="The bars before">‹</button><button class="next" title="The next bars">Next ›</button></div>
   <div class="toast" id="toast" hidden role="status"></div>
   <div class="seriesbar" id="seriesBar" hidden></div>
   <div class="zenbar" id="zenBar">Zen mode: just play and listen. <button id="zenOff">Show notes</button></div>
@@ -1830,7 +1832,9 @@ function renderFix(x, sr, plan){
   const forgetTake=id=>dbDo('readwrite', st=>st.delete(id));
   const forgetAllTakes=()=>dbDo('readwrite', st=>st.clear());
   const detail=()=>+$('detail').value||0;
-  function analyze(t){ const d=t.buffer.getChannelData(0); t.A=t.A||A4(); t.detail=detail(); t.notes=detectNotes(d,t.buffer.sampleRate,t.A,t.detail,lowNote()); t.bpm=guessTempo(t.notes); t.key=guessKey(t.notes); }
+  function analyze(t){ const d=t.buffer.getChannelData(0); t.A=t.A||A4(); t.detail=detail(); t.notes=detectNotes(d,t.buffer.sampleRate,t.A,t.detail,lowNote()); t.bpm=guessTempo(t.notes); t.key=guessKey(t.notes); drillNotes(t); }
+  // a rhythm drill judges timing only: every note played counts as the drill's note, in tune
+  function drillNotes(t){ if(t.target && t.target.drill && t.notes){ const m=t.target.notes[0]; t.notes.forEach(n=>{ n.midi=m; n.cents=0; }); } }
   async function restoreTakes(){
     const rows=await dbDo('readonly', st=>st.getAll());
     if(!rows || !rows.length) return;
@@ -1908,7 +1912,10 @@ function renderFix(x, sr, plan){
   let syncMs=0, calib=null;   // metronome sync (see 'Sync' below; declared here because the settings load it early)
   const coach={on:false, full:null, a:0, b:0, tries:0, good:0, why:'', phase:'whole'};
   let coachSetting=false;
+  let drillPrev=null;   // the Focus and metronome before a rhythm drill, put back after it
   function setTarget(str, quiet){
+    if(playing && playing.take && playing.take.id==='target'){ stopPlayback(); afterPlayback(); }
+    const wasDrill=!!(target && target.drill);
     if(!coachSetting && coach.full){ coach.full=null; coach.tries=0; coach.good=0; coach.phase='whole'; setTimeout(renderCoachBar,0); }
     str=(str||'').trim();
     if(!str){ target=null; }
@@ -1926,6 +1933,7 @@ function renderFix(x, sr, plan){
     }
     $('targetErr').textContent='';
     $('targetBtn').classList.toggle('on', !!target);
+    if(wasDrill && drillPrev){ const d=drillPrev; drillPrev=null; Object.assign(fb,d.fb); for(const k in FB_IDS) $(FB_IDS[k]).checked=fb[k]; if(!d.metroOn){ metro.on=false; renderMetro(); } renderFocus(); }
     return true;
   }
   let saved=[];
@@ -1954,7 +1962,7 @@ function renderFix(x, sr, plan){
     return {seq, name: tonic+' '+GEN_NAMES[type]+', '+oct+' oct', key: majorOf(/natural|harmonic|melodic|arpMinor/.test(type) ? MIN_TONIC[pc] : MAJ_TONIC[pc], /natural|harmonic|melodic|arpMinor/.test(type))};
   }
   $('genGo').onclick=e=>{ e.stopPropagation(); const g=generated();
-    $('targetIn').value=compactTarget(g.seq, g.seq.map((x,i)=>i===g.seq.length-1?2:1), {key:g.key}); $('targetName').value=g.name; $('targetErr').textContent=''; };
+    $('targetIn').value=compactTarget(g.seq, g.seq.map((x,i)=>i===g.seq.length-1?2:1), {key:g.key}); $('targetName').value=g.name; $('targetName').dataset.auto='1'; $('targetErr').textContent=''; };
 
   // ---- practice routine: exercises in order, each with its own tempo ----
   let routine=null; try{ routine=JSON.parse(localStorage.getItem('pib-routine')||'null'); }catch(e){}
@@ -1995,10 +2003,10 @@ function renderFix(x, sr, plan){
   }
   $('rtAdd').onclick=e=>{
     e.stopPropagation();
-    const str=$('targetIn').value.trim(); if(!str) return;
+    const str=$('targetIn').value.trim(); if(!str){ $('targetErr').textContent='Type some notes first.'; return; }
     if(!setTarget(str)) return;
     const name=$('targetName').value.trim() || (str.length>28 ? str.slice(0,28)+'…' : str);
-    routine.items.push({name, str, bpm: metro.on ? metro.bpm : null}); storeRoutine(); renderRoutineList();
+    routine.items.push({name, str:target.str, bpm: metro.on ? metro.bpm : null}); storeRoutine(); renderRoutineList(); toast('Added to the routine ('+routine.items.length+')');
   };
   $('rtStart').onclick=e=>{ e.stopPropagation(); loadRoutineItem(routine.on ? 0 : routine.pos); };
   $('routineBar').addEventListener('click',e=>{
@@ -2095,6 +2103,7 @@ function renderFix(x, sr, plan){
     const str=makeDrill(+$('drillStr').value, $('drillType').value);
     if(!setTarget(str, true)) return;
     target.drill=true; $('targetIn').value=str; $('targetName').value='';
+    if(!drillPrev) drillPrev={fb:{...fb}, metroOn:metro.on};
     if(!metro.on){ metro.on=true; metro.t0=clock()+0.05; clickedUpTo=-1; renderMetro(); }
     shownTake=null; sheetView='result'; openTarget(false);
     setFocus('rhythm'); save(); renderTakes(); renderSheet();
@@ -2157,7 +2166,7 @@ function renderFix(x, sr, plan){
     if(!str){ toast('No notes in these bars.'); return; }
     const label=barLab(part,a)+(b>a?'–'+barLab(part,b):'');
     $('targetIn').value=str; piece.str=str; piece.label=label; storePiece();
-    $('targetName').value=((piece.title||piece.file||'Piece')+(piece.parts.length>1?' ('+part.name+')':'')+', bars '+label).slice(0,80);
+    $('targetName').value=((piece.title||piece.file||'Piece')+(piece.parts.length>1?' ('+part.name+')':'')+', bars '+label).slice(0,80); $('targetName').dataset.auto='1';
     useTarget();
   }
   $('mxOpen').onclick=e=>{ e.stopPropagation(); $('mxFile').value=''; $('mxFile').click(); };
@@ -2202,7 +2211,7 @@ function renderFix(x, sr, plan){
     bar.hidden=!on; if(!on) return;
     const part=piece.parts[piece.part], n=part.bars.length, [a,b]=pieceRange();
     bar.querySelector('b').textContent=piece.title||piece.file||'Piece';
-    bar.querySelector('.ra').textContent=barLab(part,a); bar.querySelector('.rb').textContent=barLab(part,b);
+    bar.querySelector('.ra').textContent=barLab(part,a).replace('pickup','0'); bar.querySelector('.rb').textContent=barLab(part,b).replace('pickup','0');
     bar.querySelector('.of').textContent='of '+barLab(part,n-1);
     bar.querySelector('[data-k="a-"]').disabled=a<=0; bar.querySelector('[data-k="a+"]').disabled=a>=b;
     bar.querySelector('[data-k="b-"]').disabled=b<=a; bar.querySelector('[data-k="b+"]').disabled=b>=n-1;
@@ -2304,18 +2313,24 @@ function renderFix(x, sr, plan){
     const b=lyBeats(target.meter);
     if(b>=2 && b<=6 && b%1===0 && b!==metro.bpb){ metro.bpb=b; $('bpb').value=b; renderMetro(); }
   }
-  const useTarget=()=>{ const ok=setTarget($('targetIn').value); if(ok){ followMeter(); streak=0; setTimeout(refreshDrone,0); shownTake=null; sheetView='result'; if(ok!=='warn') openTarget(false); save(); renderTakes(); renderSheet(); } };
+  const useTarget=()=>{ if(!$('targetIn').value.trim() && target) toast('No notes to play: just listening');
+    const ok=setTarget($('targetIn').value); if(ok){ followMeter(); streak=0; setTimeout(refreshDrone,0); shownTake=null; sheetView='result'; if(ok!=='warn') openTarget(false); save(); renderTakes(); renderSheet(); } };
   $('targetUse').onclick=useTarget;
   $('targetSave').onclick=()=>{
-    const str=$('targetIn').value.trim(); if(!str) return;
+    const str=$('targetIn').value.trim(); if(!str){ $('targetErr').textContent='Type some notes first.'; return; }
     if(!setTarget(str)) return;
     const name=$('targetName').value.trim() || (str.length>28 ? str.slice(0,28)+'…' : str);
-    saved=saved.filter(x=>x.name!==name); saved.unshift({name,str}); storeSaved(); renderSaved();
+    const old=saved.find(x=>x.name===name);
+    if(old && old.str!==target.str && !confirm('Replace the saved “'+name+'” with these notes?')) return;
+    saved=saved.filter(x=>x.name!==name); saved.unshift({name,str:target.str}); storeSaved(); renderSaved(); toast((old?'Updated':'Saved')+' “'+name+'”');
     shownTake=null; sheetView='result'; save(); renderTakes(); renderSheet();
   };
   $('targetIn').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); useTarget(); } });
   $('targetName').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('targetSave').click(); } });
-  $('targetClear').onclick=()=>{ $('targetIn').value=''; setTarget(''); openTarget(false); save(); renderSheet(); };
+  $('targetClear').onclick=()=>{ $('targetIn').value=''; $('targetName').value=''; setTarget(''); openTarget(false); save(); renderSheet(); };
+  // a name that came with generated or imported notes doesn't stick to notes typed afterwards
+  $('targetIn').addEventListener('input',()=>{ if($('targetName').dataset.auto) { $('targetName').value=''; delete $('targetName').dataset.auto; } });
+  $('targetName').addEventListener('input',()=>{ delete $('targetName').dataset.auto; });
 
   // ---- tuning reference ----
   const tuningSel=$('tuning');
@@ -2839,6 +2854,7 @@ function renderFix(x, sr, plan){
   const ICONS={
     mic:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
     ear:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12h2M8 8v8M12 5v14M16 9v6M20 11v2"/></svg>',
+    stop:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg>',
     play:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>'
   };
   function setState(s){
@@ -2846,7 +2862,8 @@ function renderFix(x, sr, plan){
     orb.className='orb '+s;
     $('stage').classList.toggle('active', s!=='idle' && active);
     const map={ idle:['mic','Start'], listening:['ear','Listening'], recording:['', ''], playing:['play','Playback'], cooldown:['play','Playback'] };
-    const [ic,label]=map[s];
+    let [ic,label]=map[s];
+    if(s==='playing' && !active){ ic='stop'; label='Tap to stop'; }
     $('icon').innerHTML = ic?ICONS[ic]:'';
     stateText.textContent=label;
     if(coach.on && active){
@@ -3046,7 +3063,7 @@ function renderFix(x, sr, plan){
     else if(coach.on && active){ setState('cooldown'); take.coachWait=true; }
     else if(auto.checked && active) playTake(take, +rep.value);
     else setState(active?'listening':'idle');
-    setTimeout(()=>{ take.A=A4(); take.detail=detail(); take.notes=detectNotes(data,sr,A4(),take.detail,lowNote()); take.bpm=guessTempo(take.notes); take.key=guessKey(take.notes); recordTendency(take); onAnalyzed(take); rememberIssues(take);
+    setTimeout(()=>{ take.A=A4(); take.detail=detail(); take.notes=detectNotes(data,sr,A4(),take.detail,lowNote()); take.bpm=guessTempo(take.notes); take.key=guessKey(take.notes); recordTendency(take); drillNotes(take); onAnalyzed(take); rememberIssues(take);
       if(take.coachWait){ take.coachWait=false; coachAfter(take); }
       if(shownTake===take) renderSheet();
       if(series && series.ids.length>=series.n && takes.filter(k=>series.ids.includes(k.id)).every(k=>k.notes)) endSeries(); },60);
@@ -3154,7 +3171,7 @@ function renderFix(x, sr, plan){
     }
     if(takes.length){
       const c=document.createElement('button'); c.className='chip clear'; c.textContent='Clear';
-      c.onclick=()=>{ takes=[]; shownTake=null; forgetAllTakes(); renderTakes(); renderSheet(); };
+      c.onclick=()=>{ if(!confirm('Delete all '+takes.length+' recording'+(takes.length>1?'s':'')+'?')) return; takes=[]; shownTake=null; forgetAllTakes(); renderTakes(); renderSheet(); };
       box.appendChild(c);
     }
   }
@@ -3306,7 +3323,7 @@ function renderFix(x, sr, plan){
     if(fb.rhythm && lens && t.notes.length>=3){
       let any=false;
       lens.forEach((L,i)=>{ const r=L.a/L.w; if(L.free || Math.abs(r-1)<0.25) return; any=true;
-        rows.push({i, name:noteName(t.notes[i].midi,key), cls:'bad', sev:1, lab:r>1?'long':'short', part:'held '+pctTxt((r-1)*100)+(r>1?' too long':' too short')}); });
+        rows.push({i, name:noteName(t.notes[i].midi,key), cls:'tune', sev:1, lab:r>1?'long':'short', part:'held '+pctTxt((r-1)*100)+(r>1?' too long':' too short')}); });
       if(!any) goods.push('Even note lengths');
     }
     return fixList(rows, general, goods, true, true);
@@ -3401,9 +3418,9 @@ function renderFix(x, sr, plan){
     r.items.forEach((it,i)=>{
       if(it.status==='wrong') rows.push({i, name:nm0(i), cls:'bad', sev:0, part:'you played <span class="c-bad">'+noteName(it.played.midi,key)+'</span>'});
       else if(it.status==='missed') rows.push({i, name:nm0(i), cls:'miss', sev:0, part:'missed'});
-      else if(it.status==='tune') rows.push({i, name:nm0(i), cls:'tune', sev:2, lab:(it.cents>0?'+':'−')+Math.abs(it.cents), part:Math.abs(it.cents)+' cents '+(it.cents>0?'sharp':'flat')});
+      else if(it.status==='tune') rows.push({i, name:nm0(i), cls:'tune', tuning:true, sev:2, lab:(it.cents>0?'+':'−')+Math.abs(it.cents), part:Math.abs(it.cents)+' cents '+(it.cents>0?'sharp':'flat')});
     });
-    if(R) R.flags.forEach(f=>rows.push({i:f.i, name:nm0(f.i), cls:'bad', sev:1, lab:f.pct!==undefined ? f.kind : f.kind,
+    if(R) R.flags.forEach(f=>rows.push({i:f.i, name:nm0(f.i), cls:'tune', sev:1, lab:f.pct!==undefined ? f.kind : f.kind,
       part: f.pct!==undefined ? 'held '+pctTxt(f.pct)+(f.kind==='long'?' too long':' too short') : beatsTxt(f.beats)+(f.kind==='early'?' early':' late')}));
     if(r.extra) general.push({cls:'ink', icon:'+', html:r.extra+' extra note'+(r.extra>1?'s':'')+' played'});
     if(fb.tune && played) intervalItems(played, key).forEach(x=>general.push({cls:'tune', icon:'↔', html:x.html}));
@@ -3413,7 +3430,7 @@ function renderFix(x, sr, plan){
     }
     const right=r.items.filter(it=>it.status==='ok'||it.status==='tune').length;
     if(right===r.items.length && !r.extra) goods.push('Every note right');
-    if(fb.tune && !rows.some(x=>x.cls==='tune') && right) goods.push('In tune');
+    if(fb.tune && !rows.some(x=>x.tuning) && right) goods.push('In tune');
     if(R && !R.flags.length) goods.push('Rhythm right');
     return fixList(rows, general, goods, true, true);
   }
@@ -3482,7 +3499,7 @@ function renderFix(x, sr, plan){
     const amber=css('--listen'), red=css('--rec');
     t.notes.forEach((n,i)=>{
       const L=lens[i], badLen=fb.rhythm && t.notes.length>=3 && !L.free && Math.abs(L.a/L.w-1)>=0.25;
-      const c = badLen ? red : fb.tune && Math.abs(devC(n.midi,n.cents,t.key))>=20 ? amber : null;
+      const c = badLen || (fb.tune && Math.abs(devC(n.midi,n.cents,t.key))>=20) ? amber : null;
       if(c) (hl.els[i]||[]).forEach(g=>g.querySelectorAll('path,ellipse,circle').forEach(el=>{ el.style.fill=c; if(el.getAttribute('stroke') && el.getAttribute('stroke')!=='none') el.style.stroke=c; }));
     });
     markStaff(hl.els, M); t.lastMarks=M;
@@ -3743,6 +3760,7 @@ function renderFix(x, sr, plan){
     playTake({id:'target', buffer:rendered, beat, onsets}, 1);
   }
   $('sheet').addEventListener('click',e=>{ const b=e.target.closest('.hear'); if(!b) return;
+    if(!b.classList.contains('hearfix') && playing && playing.take && playing.take.id==='target'){ stopPlayback(); afterPlayback(); return; }   // (again = stop)
     const t=shownTake && shownTake.target && sheetView==='result' ? shownTake.target : target;
     if(!t) return;
     let notes=t.notes;
@@ -3807,7 +3825,7 @@ function renderFix(x, sr, plan){
       if(r.extra) html+=dot(css('--ink'), r.extra+' extra');
     }
     const nr=R ? new Set(R.flags.map(f=>f.i)).size : 0;
-    if(nr) html+=dot(col.wrong, nr+' rhythm');
+    if(nr) html+=dot(col.tune, nr+' rhythm');
     $('notelist').innerHTML='<div class="score">'+html+'</div>'+capHTML(M)+sightBar(t)+FX.html+targetTempo(t, r)+HEAR+(FX.n?FIXBTN:'')+SHARE+(tt.sight||tt.coach?'':SERIES_LINK);
     t.lastSummary=(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+(cnt.tune?', '+cnt.tune+' out of tune':'')+(cnt.wrong?', '+cnt.wrong+' wrong':'')+(cnt.missed?', '+cnt.missed+' missed':'');
     makeShareImage();
@@ -3817,7 +3835,7 @@ function renderFix(x, sr, plan){
     $('firstnote').hidden=true; $('paper').hidden=true; $('pitchWrap').hidden=false;
     $('sheetMeta').innerHTML=segHTML(t); $('sheetKey').textContent=keyLabel(t.key);
     const wrap=$('pitchWrap'), cv=$('pitch'), cur=t.notes.curve, dur=t.buffer.duration, dpr=window.devicePixelRatio||1;
-    const H=220, PL=38, PT=10, PB=12, W=Math.max(wrap.clientWidth, Math.round(dur*90));
+    const H=220, PL=38, PT=10, PB=12, W=Math.max(wrap.clientWidth, Math.round(Math.min(dur*90, wrap.clientWidth*1.6)));
     cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
     const g=cv.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
     const r = t.target ? judge(alignTarget(t.target.notes, t.notes, t.target.hasOct), keyOf(t.target.notes)) : null;
@@ -3941,7 +3959,7 @@ function renderFix(x, sr, plan){
         key:keyOf(target.notes), meter:target.meter || (target.durs ? metro.bpb+'/4' : '4/4'), bpm:target.durs && metro.on ? metro.bpm : 0};
     } else return;
     o.part=part; o.clef=clefFor(o.ev.map(e=>e.midi)); if(o.clef==='auto') o.clef=o.ev.length && o.ev.map(e=>e.midi).sort((a,b)=>a-b)[o.ev.length>>1]<57 ? 'bass' : 'treble';
-    const name=(o.title.replace(/[\/:*?"<>|]+/g,'').trim()||'score').slice(0,60)+'.musicxml';
+    const name=(o.title.replace(/[–—]/g,'-').normalize('NFKD').replace(/[^\w ,.()+-]+/g,'').trim()||'score').slice(0,60)+'.musicxml';   // (plain characters: an en dash made it 'download')
     saveFile(new Blob([toMusicXML(o)],{type:'application/vnd.recordare.musicxml+xml'}), name);
   }
   $('sheet').addEventListener('click',e=>{ if(!e.target.closest('.mx-btn')) return; e.stopPropagation(); exportMusicXML(shownTake); }, true);
@@ -4154,7 +4172,7 @@ function renderFix(x, sr, plan){
     $('syncGo').disabled=true;
     const tick=setInterval(()=>{
       const k=Math.floor((clock()-t0)/bl);
-      $('syncGo').textContent = k<4 ? 'Ready… '+(4-Math.max(0,k)) : k<B ? 'Play with the clicks '+(k-3)+'/8' : 'Measure';
+      $('syncGo').textContent = k<4 ? 'Ready '+(4-Math.max(0,k)) : k<B ? 'Play '+(k-3)+'/8' : 'Measure';
       if(k<B+1) return;
       clearInterval(tick);
       const offs=calib.on.map(t=>{ const j=Math.round((t-t0-0.1)/bl); return {j, d:t-(t0+j*bl)}; }).filter(x=>x.j>=4 && x.j<B && x.d>-0.15 && x.d<0.5).map(x=>x.d);
@@ -4246,7 +4264,7 @@ function renderFix(x, sr, plan){
     }
     const a=document.createElement('a'); a.href=URL.createObjectURL(file); a.download=file.name; document.body.appendChild(a); a.click();
     setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
-    toast('Backup saved: '+file.name+(data.takes.length?' ('+data.takes.length+' recordings)':''));
+    toast('Backup saved: '+file.name+(data.takes.length?' ('+data.takes.length+' recording'+(data.takes.length>1?'s':'')+')':''));
   }
   async function restoreBackup(file){
     let data; try{ data=JSON.parse(await file.text()); }catch(e){ toast('That file isn’t a backup.'); return; }
@@ -4289,7 +4307,7 @@ function renderFix(x, sr, plan){
     ['#focusSeg','What to work on','Tuning, rhythm or both, just the notes, or Zen to listen without any feedback.'],
     ['#targetBtn','Notes to play','Type the notes, generate a scale, or set a take as the target. Then the app tells you exactly what to fix, and can run a series of takes.'],
     ['#statsBtn','Your practice','Today’s suggestions, time practised, and how you tend to play each note.'],
-    ['#settings summary','Settings','Tuning (A = 440…), instrument, metronome, and your backup. “Show all settings” has everything else.'],
+    ['#settings summary','Settings', matchMedia('(min-width:1100px)').matches ? 'Metronome, sync and your backup. Feedback, listening, tuning and instrument are in the left column. “Show all settings” has everything else.' : 'Feedback, metronome, tuning (A = 440…), instrument, and your backup. “Show all settings” has everything else.'],
   ];
   function showGuide(){
     $('settings').open=false; openTarget(false); if(statsOpen) openStats(false);
