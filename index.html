@@ -174,10 +174,10 @@ canvas{width:100%; height:26px; display:block; border-radius:8px; visibility:hid
 .metro{display:flex; align-items:center; gap:6px}
 .metro button{border:1px solid var(--line); background:var(--surface); height:34px; border-radius:10px; box-shadow:var(--shadow)}
 .metro .step{width:34px; font-size:1.2rem; line-height:1; color:var(--muted)}
-.metro .tog{min-width:80px; padding:0 12px; font-weight:600; font-variant-numeric:tabular-nums; color:var(--muted); display:inline-flex; align-items:center; justify-content:center; gap:4px}
+.metro .tog{min-width:72px; padding:0 10px; font-weight:600; font-variant-numeric:tabular-nums; color:var(--muted); display:inline-flex; align-items:center; justify-content:center; gap:4px}
 .metro .tog .qn{width:16px; height:16px}
 .metro.on .tog{background:var(--ink); border-color:var(--ink); color:var(--bg)}
-.metro:not(.on) .step{visibility:hidden}
+.metro:not(.on) .step{display:none}
 .dots{display:flex; gap:10px; height:10px; align-items:center}
 .dots i{width:7px; height:7px; border-radius:50%; background:var(--line2)}
 .dots i:first-child{width:10px; height:10px}
@@ -406,10 +406,12 @@ dialog.report .heard b{font-weight:600; color:var(--ink); font-size:.75rem; marg
 dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 .sheet-head .left{display:flex; align-items:baseline; gap:8px; min-width:0}
 @media (max-width:520px){ .sheet-head .left{flex-direction:column; align-items:flex-start; gap:0} }
-@media (max-width:360px){ .metro{flex-wrap:wrap; justify-content:center} .set .check.syncrow{flex-wrap:wrap} }
-.metro .drone{padding:0 14px; margin-left:6px; color:var(--muted); font-weight:600; font-size:.92rem}
+@media (max-width:440px){ .metro{flex-wrap:wrap; justify-content:center; row-gap:6px; max-width:100%} }
+@media (max-width:360px){ .set .check.syncrow{flex-wrap:wrap} }
+.metro .modes{display:flex; gap:4px; margin-left:4px}
+.metro .drone{padding:0 11px; color:var(--muted); font-weight:600; font-size:.88rem}
 .metro .drone[aria-pressed="true"]{background:var(--play); border-color:var(--play); color:var(--bg)}
-.metro:not(.on) .step{visibility:hidden}
+.metro:not(.on) .step{display:none}
 .toast{position:fixed; left:0; right:0; bottom:calc(14px + env(safe-area-inset-bottom,0px)); z-index:40; width:max-content; max-width:min(92vw,440px);
   background:var(--ink); color:var(--bg); border-radius:10px; padding:7px 14px; font-weight:600; font-size:.88rem; text-align:center; box-shadow:var(--shadow-lg); pointer-events:none}
 .prog{margin:8px 4px 2px}
@@ -492,6 +494,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           <div class="sgroup">Listening</div>
           <div class="set" id="micRow" hidden><label for="micSel">Microphone</label><select id="micSel"><option value="">Default</option></select></div>
           <div class="set" id="outRow" hidden title="Where playback, the click, Hear it and the drone are heard"><label for="outSel">Speaker</label><select id="outSel"><option value="">Default</option></select></div>
+          <div class="set" title="In Model mode, after each try"><label for="modelHow">Model</label><select id="modelHow"><option value="seq">Your take, then the model</option><option value="both">Your take with the model</option></select></div>
           <div class="set"><span>Playback</span><label class="check"><input type="checkbox" id="bargeIn" checked> Stop when I play <span id="bargeNote"></span></label></div>
           <div class="set"><label for="sil">Stop after</label><input type="range" id="sil" min="0.5" max="5" step="0.1" value="1.5"><output id="silVal"></output></div>
           <div class="set"><label for="rep">Repeat</label><input type="range" id="rep" min="0" max="4" step="1" value="1"><output id="repVal"></output></div>
@@ -631,8 +634,9 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
       <button class="step" id="mMinus" aria-label="Slower">−</button>
       <button class="tog" id="mToggle" aria-pressed="false">♩ 72</button>
       <button class="step" id="mPlus" aria-label="Faster">+</button>
-      <button class="drone" id="droneBtn" aria-pressed="false">Drone</button>
-      <button class="drone" id="coachBtn" aria-pressed="false" title="Coach: after each take it picks what to practise, plays it for you (yours, then right) and listens to just that, until it's right">Coach</button>
+      <span class="modes"><button class="drone" id="droneBtn" aria-pressed="false">Drone</button>
+      <button class="drone" id="modelBtn" aria-pressed="false" title="Model: before each try you hear the notes played, after it your take and the model again (or together), to compare by ear">Model</button>
+      <button class="drone" id="coachBtn" aria-pressed="false" title="Coach: after each take it picks what to practise, plays it for you (yours, then right) and listens to just that, until it's right">Coach</button></span>
     </div>
     <div class="dots" id="dots" aria-hidden="true"></div>
     <div class="seg focus" id="focusSeg" role="group" aria-label="What to focus on">
@@ -650,6 +654,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 
   <div class="routine" id="routineBar" hidden></div>
   <div class="routine coachbar" id="coachBar" hidden></div>
+  <div class="routine coachbar" id="modelBar" hidden></div>
   <div class="routine piecebar" id="pieceBar" hidden><span class="nm"><b></b><br><small class="rng">bars <button data-k="a-" title="Start a bar earlier" aria-label="Start a bar earlier">−</button><span class="ra"></span><button data-k="a+" title="Start a bar later" aria-label="Start a bar later">+</button> to <button data-k="b-" title="End a bar earlier" aria-label="End a bar earlier">−</button><span class="rb"></span><button data-k="b+" title="End a bar later" aria-label="End a bar later">+</button> <span class="of"></span></small></span><button class="prev" aria-label="Previous bars" title="The bars before">‹</button><button class="next" title="The next bars">Next ›</button></div>
   <div class="toast" id="toast" hidden role="status"></div>
   <div class="seriesbar" id="seriesBar" hidden></div>
@@ -2024,7 +2029,8 @@ function renderFix(x, sr, plan){
   let target=null, sheetView='result', halfSpeed=false;
   // (coach: see 'Coach' below; declared here because setTarget ends its passage practice)
   // phase: 'whole' (play the exercise) | 'clean' (it was) | 'yours' / 'right' (the demo playing) | 'turn' (play the passage)
-  let syncMs=0, calib=null, micId='', outId='';   // (micId / outId: the chosen input and output devices, '' = default)   // metronome sync (see 'Sync' below; declared here because the settings load it early)
+  let syncMs=0, calib=null, micId='', outId='';
+  const model={on:false, phase:null};   // Model mode (see 'Model' below; declared early because the settings load it)   // (micId / outId: the chosen input and output devices, '' = default)   // metronome sync (see 'Sync' below; declared here because the settings load it early)
   const coach={on:false, full:null, a:0, b:0, tries:0, good:0, why:'', phase:'whole'};
   let coachSetting=false;
   let drillPrev=null;   // the Focus and metronome before a rhythm drill, put back after it
@@ -2048,6 +2054,7 @@ function renderFix(x, sr, plan){
     }
     $('targetErr').textContent='';
     $('targetBtn').classList.toggle('on', !!target);
+    if(model.on) setTimeout(renderModelBar,0);
     if(wasDrill && drillPrev){ const d=drillPrev; drillPrev=null; Object.assign(fb,d.fb); for(const k in FB_IDS) $(FB_IDS[k]).checked=fb[k]; if(!d.metroOn){ metro.on=false; renderMetro(); } renderFocus(); }
     return true;
   }
@@ -2588,7 +2595,7 @@ function renderFix(x, sr, plan){
   const SERIES_LINK='<div class="serieslink" title="Play it several times back to back, without playback or feedback in between, then see what keeps going wrong">Back to back <button data-series="3">3×</button><button data-series="5">5×</button><button data-series="10">10×</button></div>';
   function renderSeriesBar(){
     const bar=$('seriesBar');
-    renderCoachBar();
+    renderCoachBar(); renderModelBar();
     if(!series){ bar.hidden=true; document.body.classList.remove('series'); return; }
     document.body.classList.add('series'); bar.hidden=false;
     const k=series.ids.length;
@@ -2888,6 +2895,7 @@ function renderFix(x, sr, plan){
   });
   function setCoach(on){
     coach.on=on; $('coachBtn').setAttribute('aria-pressed', on);
+    if(on && model.on){ model.on=false; $('modelBtn').setAttribute('aria-pressed', false); renderModelBar(); }
     if(!on && coach.full) coachBack(); else renderCoachBar();
     save();
   }
@@ -2920,7 +2928,7 @@ function renderFix(x, sr, plan){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:(t=>t&&!t.ear&&!t.sight&&!t.drill?t.str:'')(coach.full||target),coach:coach.on,A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked,sync:syncMs,mic:micId,out:outId,gen:Object.fromEntries(['genKey','genType','genOct','earLen','drillType','backupTakes'].map(id=>[id, $(id).type==='checkbox' ? $(id).checked : $(id).value]))})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:(t=>t&&!t.ear&&!t.sight&&!t.drill?t.str:'')(coach.full||target),coach:coach.on,A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked,sync:syncMs,mic:micId,out:outId,model:model.on,modelHow:$('modelHow').value,gen:Object.fromEntries(['genKey','genType','genOct','earLen','drillType','backupTakes'].map(id=>[id, $(id).type==='checkbox' ? $(id).checked : $(id).value]))})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
     if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); coach.on=!!s.coach; $('coachBtn').setAttribute('aria-pressed',coach.on); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
@@ -2930,6 +2938,7 @@ function renderFix(x, sr, plan){
       if(s.detail) $('detail').value=s.detail; if(s.zen) document.body.classList.add('zen');
       if(typeof s.sync==='number') syncMs=s.sync;
       if(typeof s.mic==='string') micId=s.mic; if(typeof s.out==='string') outId=s.out;
+      model.on=!!s.model; if(s.modelHow) $('modelHow').value=s.modelHow;
       if(typeof s.barge==='boolean') $('bargeIn').checked=s.barge;
       if(s.gen){ for(const [id,v] of Object.entries(s.gen)) if($(id) && v!==undefined){ if($(id).type==='checkbox') $(id).checked=!!v; else $(id).value=v; } } }
     // iPhone / iPad (also iPads that say they are Macs): the mic open during playback sends the sound to
@@ -2982,6 +2991,11 @@ function renderFix(x, sr, plan){
     if(s==='playing' && !active){ ic='stop'; label='Tap to stop'; }
     $('icon').innerHTML = ic?ICONS[ic]:'';
     stateText.textContent=label;
+    if(model.on && active){
+      if(s==='listening' || s==='recording'){ if(model.phase){ model.phase=s==='listening'?'turn':null; setTimeout(renderModelBar,0); } }
+      const L=(s==='playing'||s==='cooldown') ? (({model:'Model', yours:'Yours', both:'Together'})[model.phase] || (s==='cooldown' ? 'Checking' : null)) : (s==='listening' && model.phase==='turn' ? 'Your turn' : null);
+      if(L) stateText.textContent=L;
+    }
     if(coach.on && active){
       if((s==='listening' || s==='recording') && (coach.phase==='yours' || coach.phase==='right')){ coach.phase = coach.full ? 'turn' : 'whole'; setTimeout(renderCoachBar,0); }
       const L = (s==='playing' || s==='cooldown') && coach.phase==='yours' ? 'Yours' : (s==='playing' || s==='cooldown') && coach.phase==='right' ? 'Right'
@@ -3209,10 +3223,12 @@ function renderFix(x, sr, plan){
 
     if(series){ series.ids.push(take.id); take.series=true; setState(active?'listening':'idle'); renderSeriesBar(); }
     else if(coach.on && active){ setState('cooldown'); take.coachWait=true; }
+    else if(model.on && active && take.target && !take.target.ear){ setState('cooldown'); take.modelWait=true; }
     else if(auto.checked && active) playTake(take, +rep.value);
     else setState(active?'listening':'idle');
     setTimeout(()=>{ take.A=A4(); take.detail=detail(); take.notes=detectNotes(data,sr,A4(),take.detail,lowNote()); take.bpm=guessTempo(take.notes); take.key=guessKey(take.notes); recordTendency(take); drillNotes(take); onAnalyzed(take); rememberIssues(take);
       if(take.coachWait){ take.coachWait=false; coachAfter(take); }
+      if(take.modelWait){ take.modelWait=false; if(shownTake===take){ shownTake=null; renderTakes(); renderSheet(); } modelAfter(take); }
       if(shownTake===take) renderSheet();
       if(series && series.ids.length>=series.n && takes.filter(k=>series.ids.includes(k.id)).every(k=>k.notes)) endSeries(); },60);
   }
@@ -3325,7 +3341,7 @@ function renderFix(x, sr, plan){
   }
 
   orb.addEventListener('click',()=>{
-    if(state==='idle') start();
+    if(state==='idle') start().then(()=>{ if(model.on && active && !series) playModel(); });
     else if(state==='recording') finishTake();
     else if(state==='playing'||state==='cooldown'){ stopPlayback(); afterPlayback(); }
     else stop();
@@ -3882,31 +3898,109 @@ function renderFix(x, sr, plan){
     else { const i=+b.dataset.i; hearFixed(t, Math.max(0,i-1), Math.min(n-1,i+1), true); }
   }, true);
 
-  async function hearTarget(notes, durs, onsets){
-    ensureAC(); await ac.resume(); anchorClock();
-    if(state==='recording') return;
-    if(!durs){ durs=notes.map(()=>1); onsets=notes.map((m,i)=>i); }
-    else if(onsets[0]>0){ const lead=onsets[0]; onsets=onsets.map(o=>o-lead); }   // (a leading rest: start with the first note)
-    const sr=44100, beat=60/metro.bpm, total=onsets[onsets.length-1]+durs[durs.length-1], len=Math.ceil((total*beat+0.6)*sr);
-    const OC=window.OfflineAudioContext||window.webkitOfflineAudioContext, oc=new OC(1,len,sr);
-    const out=oc.createGain(); out.gain.value=0.5; out.connect(oc.destination);
+  // The model: target notes as a synthesized bowed tone (sawtooth + a little triangle, vibrato after the
+  // attack, a soft bow attack, and a violin-ish body: resonances near 280 Hz and 2.8 kHz), in tune under the
+  // judging setting. at(i) gives each note's start in seconds, len(i) its length; returns an AudioBuffer.
+  async function renderModel(notes, at, len, total, sr=44100){
+    const OC=window.OfflineAudioContext||window.webkitOfflineAudioContext, oc=new OC(1,Math.ceil(total*sr),sr);
+    const out=oc.createGain(); out.gain.value=0.5;
+    const b1=oc.createBiquadFilter(), b2=oc.createBiquadFilter(), b3=oc.createBiquadFilter();
+    b1.type='peaking'; b1.frequency.value=280; b1.gain.value=5; b1.Q.value=1;
+    b2.type='peaking'; b2.frequency.value=1000; b2.gain.value=-3; b2.Q.value=1;
+    b3.type='peaking'; b3.frequency.value=2800; b3.gain.value=6; b3.Q.value=1.2;
+    out.connect(b1); b1.connect(b2); b2.connect(b3); b3.connect(oc.destination);
     const hk=keyOf(notes);
     notes.forEach((m,i)=>{
-      const f=A4()*Math.pow(2,(m-69+refCents(m,hk)/100)/12), t=onsets[i]*beat, d=Math.max(0.12,durs[i]*beat-0.05);
+      const f=A4()*Math.pow(2,(m-69+refCents(m,hk)/100)/12), t=at(i), d=Math.max(0.12,len(i)-0.04);
+      if(t<0 || t>=total) return;
       const o1=oc.createOscillator(), o2=oc.createOscillator(), lp=oc.createBiquadFilter(), g=oc.createGain();
       const lfo=oc.createOscillator(), lg=oc.createGain();
       o1.type='sawtooth'; o2.type='triangle'; o1.frequency.value=f; o2.frequency.value=f*1.002;
-      lfo.frequency.value=5.5; lg.gain.setValueAtTime(0,t); lg.gain.linearRampToValueAtTime(f*0.004,t+Math.min(0.35,d));
+      lfo.frequency.value=5.5; lg.gain.setValueAtTime(0,t); lg.gain.setValueAtTime(0,t+Math.min(0.15,d*0.4)); lg.gain.linearRampToValueAtTime(f*0.004,t+Math.min(0.45,d));
       lfo.connect(lg); lg.connect(o1.frequency); lg.connect(o2.frequency);
-      lp.type='lowpass'; lp.frequency.value=Math.min(2600,f*6); lp.Q.value=0.7;
-      g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.35,t+0.04); g.gain.setValueAtTime(0.3,t+d-0.06); g.gain.linearRampToValueAtTime(0,t+d);
+      lp.type='lowpass'; lp.Q.value=0.7; lp.frequency.setValueAtTime(Math.min(4000,f*9),t); lp.frequency.linearRampToValueAtTime(Math.min(2800,f*6),t+0.08);   // (a brighter bow attack)
+      g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.36,t+0.05); g.gain.linearRampToValueAtTime(0.3,t+0.15); g.gain.setValueAtTime(0.3,t+Math.max(0.15,d-0.06)); g.gain.linearRampToValueAtTime(0,t+d);
       o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(out);
       [o1,o2,lfo].forEach(o=>{ o.start(t); o.stop(t+d+0.05); });
     });
-    const rendered=await oc.startRendering();
-    if(state==='recording') return;
-    playTake({id:'target', buffer:rendered, beat, onsets}, 1);
+    return oc.startRendering();
   }
+  // the target's notes at a beat length: starts and lengths in seconds (a leading rest skipped)
+  function modelTimes(tt, beat){
+    const durs=tt.durs || tt.notes.map(()=>1), ons=tt.onsets || tt.notes.map((m,i)=>i), lead=tt.durs ? ons[0] : 0;
+    return {at:i=>(ons[i]-lead)*beat+0.05, len:i=>durs[i]*beat, total:(ons[ons.length-1]-lead+durs[durs.length-1])*beat+0.6};
+  }
+  async function hearTarget(notes, durs, onsets){
+    ensureAC(); await ac.resume(); anchorClock();
+    if(state==='recording') return;
+    const beat=60/metro.bpm, T=modelTimes({notes, durs, onsets}, beat);
+    const rendered=await renderModel(notes, T.at, T.len, T.total);
+    if(state==='recording') return;
+    playTake({id:'target', buffer:rendered, beat, onsets: durs ? onsets.map(o=>o-onsets[0]) : notes.map((m,i)=>i)}, 1);
+  }
+
+  // ---- Model mode: learning by ear. Before each try the model plays (the target notes, synthesized, at the
+  // metronome's tempo or the tempo of the last take of these notes); after a take: the take and then the model
+  // again, or (Settings > Listening > Model) the take with the model under it, lined up with the take's notes
+  // (targetRhythm: its tempo and offset), the model a bit quieter: out-of-tune notes beat, timing shows.
+  // The sheet shows the notes to play; the take's analysed result is a tap on its button away. ----
+  const modelBeat=()=> metro.on ? 60/metro.bpm : (target && lastTargetSpb[target.str]) || 60/metro.bpm;
+  async function playModel(){
+    if(!target || target.ear || !active || state==='recording') return;
+    const T=modelTimes(target, modelBeat()), buf=await renderModel(target.notes, T.at, T.len, T.total, ac.sampleRate);
+    if(!active || state==='recording') return;
+    model.phase='model'; renderModelBar();
+    playTake({id:'model', buffer:buf}, 1);
+  }
+  const concat=(parts,sr)=>{ const n=parts.reduce((k,y)=>k+y.length,0), b=ac.createBuffer(1,n,sr), all=new Float32Array(n); let o=0; for(const y of parts){ all.set(y,o); o+=y.length; } b.copyToChannel(all,0); return b; };
+  async function modelAfter(t){
+    if(!active) return;
+    const sr=t.buffer.sampleRate, x=t.buffer.getChannelData(0);
+    let R=null, r=null;
+    if($('modelHow').value==='both' && t.notes && t.notes.length && t.target){ const key=keyOf(t.target.notes); r=judge(alignTarget(t.target.notes, t.notes, t.target.hasOct), key); R=targetRhythm(t, r); }
+    if(R && t.target.durs){
+      // together: the model where the take's notes are (its tempo and offset), under the take
+      const tt=t.target, shift=r.shift, notes=Object.assign(tt.notes.map(m=>m+shift), {key:tt.notes.key, names:tt.notes.names});
+      const m=await renderModel(notes, i=>R.off+tt.onsets[i]*R.spb, i=>tt.durs[i]*R.spb, t.buffer.duration, sr), y=m.getChannelData(0);
+      const rms=a=>{ let e=0,c=0; for(let i=0;i<a.length;i+=64){ if(Math.abs(a[i])>1e-4){ e+=a[i]*a[i]; c++; } } return Math.sqrt(e/Math.max(1,c)); };
+      const g=0.6*rms(x)/Math.max(1e-6,rms(y)), mix=new Float32Array(x.length);
+      for(let i=0;i<x.length;i++) mix[i]=Math.max(-1,Math.min(1,x[i]*0.85+(y[i]||0)*g));
+      if(!active || state==='recording') return;
+      model.phase='both'; renderModelBar();
+      playTake({id:'fix', buffer:concat([mix],sr)}, 1);
+      return;
+    }
+    // one after the other: the take, a pause, the model
+    const T=modelTimes(t.target||target, modelBeat()), m=await renderModel((t.target||target).notes, T.at, T.len, T.total, sr), y=m.getChannelData(0);
+    const g=(()=>{ let e=0,c=0,e2=0,c2=0; for(let i=0;i<x.length;i+=64) if(Math.abs(x[i])>1e-4){ e+=x[i]*x[i]; c++; } for(let i=0;i<y.length;i+=64) if(Math.abs(y[i])>1e-4){ e2+=y[i]*y[i]; c2++; } return 0.9*Math.sqrt(e/Math.max(1,c))/Math.max(1e-6,Math.sqrt(e2/Math.max(1,c2))); })();
+    const ys=y.map(v=>Math.max(-1,Math.min(1,v*g)));
+    if(!active || state==='recording') return;
+    const buf=concat([x, new Float32Array(Math.round(0.5*sr)), ys], sr);
+    model.phase='yours'; renderModelBar();
+    await playTake({id:'fix', buffer:buf}, 1);
+    const switchAt=(x.length/sr+0.25)*1000;
+    setTimeout(()=>{ if(playing && playing.buf===buf && model.phase==='yours'){ model.phase='model'; stateText.textContent='Model'; renderModelBar(); } }, switchAt);
+  }
+  function renderModelBar(){
+    const bar=$('modelBar'), on=model.on && !series && !coach.on;
+    bar.hidden=!on; if(!on) return;
+    const ph=model.phase;
+    const line = !target || target.ear ? 'Set some notes to play: the model plays them before each try'
+      : ph==='model' ? '<b>Listen</b> to the model, then play it'
+      : ph==='yours' ? '<b>Yours…</b> then the model'
+      : ph==='both' ? '<b>Yours and the model together</b>: listen for beats and for notes that don’t start together'
+      : 'Play it after the model. Then you hear yours and the model';
+    bar.innerHTML='<span class="nm"><b>Model</b><br><small>'+line+'</small></span>';
+  }
+  function setModel(on){
+    model.on=on; $('modelBtn').setAttribute('aria-pressed', on);
+    if(on && coach.on) setCoach(false);
+    model.phase=null; renderModelBar(); save();
+    if(on){ toast(target ? 'Model on: you hear the notes before each try' : 'Model on: set some notes to play first');
+      if(active && state==='listening') playModel(); }
+  }
+  $('modelBtn').onclick=()=>setModel(!model.on);
+  $('modelHow').addEventListener('change',save);
   $('sheet').addEventListener('click',e=>{ const b=e.target.closest('.hear'); if(!b) return;
     if(!b.classList.contains('hearfix') && playing && playing.take && playing.take.id==='target'){ stopPlayback(); afterPlayback(); return; }   // (again = stop)
     const t=shownTake && shownTake.target && sheetView==='result' ? shownTake.target : target;
@@ -4492,7 +4586,7 @@ function renderFix(x, sr, plan){
   $('zenBox').checked=document.body.classList.contains('zen'); renderFocus(); renderLiveTog();
   loadLinkedExercise();
   if((()=>{ try{ return !localStorage.getItem('pib-guide'); }catch(e){ return false; } })()) setTimeout(showGuide, 600);
-  setState('idle'); pedalSync(); renderStrings(); renderSheet(); renderMetro(); renderRoutineBar(); renderCoachBar(); renderSync(); restoreTakes();
+  setState('idle'); pedalSync(); renderStrings(); renderSheet(); renderMetro(); renderRoutineBar(); renderCoachBar(); renderSync(); $('modelBtn').setAttribute('aria-pressed', model.on); renderModelBar(); restoreTakes();
   requestAnimationFrame(draw);
 })();
 </script>

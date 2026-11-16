@@ -230,6 +230,15 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   red wrong or extra, amber off in time or tune, green right; invisible rests elsewhere); below, the
   written bars, the passage in ink and its neighbours faded. `toAbc(..., opt)` takes {total, rest:'x'} so
   both staves break into the same bars. Without target notes it plays 'Yours, fixed' when something is off.
+- **Model** (button beside Drone and Coach; `model`, saved; Coach and Model exclude each other): learning by ear.
+  Before each try the model plays (`playModel`: the target, synthesized by `renderModel`, at the metronome's
+  tempo or that target's last tempo); after a take (`modelAfter`, once its notes are read): the take, a pause,
+  the model again, or with Settings > Listening > Model = together, the model rendered at the take's own note
+  places (`targetRhythm` spb and offset), mixed under the take at about -4 dB so out-of-tune notes beat and
+  timing differences stand out. The big button says Model / Yours / Together / Your turn; a bar above the
+  sheet says what to do; the sheet shows the notes to play (the take's result is on its button). The synth
+  (also Hear it): sawtooth + triangle, vibrato after the attack, a brighter bow attack, body peaks ~280 Hz
+  and ~2.8 kHz, tuned under the judging setting.
 - **Mistakes on the staff** (`fixList(..., inline)`, `markStaff`): each problem note carries a short label in its
   colour (red = wrong / missed note, amber = timing or tuning) (the note played below a wrong one; above: '+27' / '−15' cents, 'long', 'short', 'early', 'late',
   the most serious only). Tapping a marked note (nearest within 40 px) shows one line in plain words
