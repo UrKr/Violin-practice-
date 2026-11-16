@@ -237,6 +237,10 @@ button.lnk{border:none; background:transparent; color:var(--play); font-weight:6
 .routine button{height:30px; min-width:34px; padding:0 10px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink); font-weight:600}
 .routine button.next{background:var(--play); border-color:var(--play); color:#fff}
 .routine button:disabled{opacity:.35}
+.piecebar .nm{white-space:normal; line-height:1.3}
+.piecebar .rng{color:var(--muted); font-size:.8rem; font-variant-numeric:tabular-nums; white-space:nowrap}
+.piecebar .rng button{height:24px; min-width:24px; padding:0; border-radius:6px; font-size:.9rem; line-height:1; margin:0 3px; vertical-align:middle}
+.piecebar .rng .ra,.piecebar .rng .rb{color:var(--ink); font-weight:600}
 .coachbar{background:color-mix(in srgb, var(--play) 9%, var(--surface))}
 .coachbar .nm small{color:var(--muted); font-size:.8rem}
 .coachbar .nm .c-bad{font-weight:600}
@@ -633,7 +637,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 
   <div class="routine" id="routineBar" hidden></div>
   <div class="routine coachbar" id="coachBar" hidden></div>
-  <div class="routine" id="pieceBar" hidden><span class="nm"><b></b> <span class="sheet-meta"></span></span><button class="prev" aria-label="Previous bars">‹</button><button class="next">Next ›</button></div>
+  <div class="routine piecebar" id="pieceBar" hidden><span class="nm"><b></b><br><small class="rng">bars <button data-k="a-" title="Start a bar earlier" aria-label="Start a bar earlier">−</button><span class="ra"></span><button data-k="a+" title="Start a bar later" aria-label="Start a bar later">+</button> – <button data-k="b-" title="End a bar earlier" aria-label="End a bar earlier">−</button><span class="rb"></span><button data-k="b+" title="End a bar later" aria-label="End a bar later">+</button> <span class="of"></span></small></span><button class="prev" aria-label="Previous bars" title="The bars before">‹</button><button class="next" title="The next bars">Next ›</button></div>
   <div class="toast" id="toast" hidden role="status"></div>
   <div class="seriesbar" id="seriesBar" hidden></div>
   <div class="zenbar" id="zenBar">Zen mode: just play and listen. <button id="zenOff">Show notes</button></div>
@@ -2051,6 +2055,7 @@ function renderFix(x, sr, plan){
     $('mxFrom').innerHTML='';
     part.bars.forEach((b,i)=>{ if(i===0 && pick && part.bars.length>1) return; $('mxFrom').add(new Option('Bar '+(i+(pick?0:1)), i, false, i===piece.from)); });
     if(![...$('mxFrom').options].some(o=>+o.value===piece.from)) $('mxFrom').selectedIndex=0;
+    if(piece.len && ![...$('mxLen').options].some(o=>+o.value===piece.len)) $('mxLen').add(new Option(piece.len+' bars', piece.len));
     $('mxLen').value=piece.len;
     const f=part.flags, notes=[];
     if(piece.tempo) notes.push('Score tempo '+piece.tempo+' bpm.');
@@ -2060,20 +2065,27 @@ function renderFix(x, sr, plan){
     if(f.grace) notes.push('Grace notes left out.');
     $('mxHint').textContent=notes.join(' ');
   }
-  // bars as indexes: bar 1 includes a pickup before it
+  // The bars to practise: piece.a..piece.b (indexes into the part's bars; 0 is a pickup when there is
+  // one, shown as 'pickup'). The panel's From / How many set them; the bar above the sheet moves each end.
+  const pick0=part=>part.bars[0].pickup && part.bars.length>1;
+  const barLab=(part,i)=> pick0(part) ? (i===0 ? 'pickup' : String(i)) : String(i+1);
   function pieceRange(){
     const part=piece.parts[piece.part], n=part.bars.length;
-    let a=Math.min(piece.from, n-1), b = piece.len ? Math.min(n-1, a+piece.len-1) : n-1;
-    if(a===1 && $('mxFrom').options[0] && +$('mxFrom').options[0].value===1) a=0;   // with the pickup
-    return [a,b];
+    if(piece.a===undefined){                                  // from the panel: From + How many
+      let a=Math.min(piece.from||0, n-1), b = piece.len ? Math.min(n-1, a+piece.len-1) : n-1;
+      if(a===1 && pick0(part)) a=0;                           // bar 1 comes with its pickup
+      piece.a=a; piece.b=b;
+    }
+    piece.a=Math.max(0,Math.min(piece.a,n-1)); piece.b=Math.max(piece.a,Math.min(piece.b,n-1));
+    return [piece.a, piece.b];
   }
   function usePiece(){
     const part=piece.parts[piece.part], [a,b]=pieceRange();
     const str=pieceTarget(part, a, b);
     if(!str){ toast('No notes in these bars.'); return; }
-    const first=+$('mxFrom').value, label=$('mxFrom').selectedOptions[0].text.replace('Bar ',''), lastN=b-first+(+label);
-    $('targetIn').value=str; piece.str=str; piece.label=label+(lastN>+label?'–'+lastN:''); storePiece();
-    $('targetName').value=((piece.title||piece.file||'Piece')+(piece.parts.length>1?' ('+part.name+')':'')+', bars '+label+(lastN>+label?'–'+lastN:'')).slice(0,80);
+    const label=barLab(part,a)+(b>a?'–'+barLab(part,b):'');
+    $('targetIn').value=str; piece.str=str; piece.label=label; storePiece();
+    $('targetName').value=((piece.title||piece.file||'Piece')+(piece.parts.length>1?' ('+part.name+')':'')+', bars '+label).slice(0,80);
     useTarget();
   }
   $('mxOpen').onclick=e=>{ e.stopPropagation(); $('mxFile').value=''; $('mxFile').click(); };
@@ -2087,33 +2099,46 @@ function renderFix(x, sr, plan){
       const want=new RegExp($('instr').value,'i'), pi=Math.max(0, sc.parts.findIndex(p=>want.test(p.name)));
       piece={...sc, file:file.name.replace(/\.(musicxml|xml|mxl)$/i,''), part:pi, from:0, len:4};
       storePiece(); renderPiece();
-      piece.from=+$('mxFrom').value; storePiece();
+      piece.from=+$('mxFrom').value; piece.a=undefined; storePiece();
       usePiece();
       if(pi===0 && sc.parts.length>1 && !want.test(sc.parts[0].name)) openTarget(true);   // which part? choose it here
     } catch(err){ toast(err && err.message ? err.message : 'Couldn’t read that file.'); }
   };
-  $('mxPart').onchange=()=>{ piece.part=+$('mxPart').value; piece.from=0; renderPiece(); piece.from=+$('mxFrom').value; storePiece(); };
-  $('mxFrom').onchange=()=>{ piece.from=+$('mxFrom').value; storePiece(); };
-  $('mxLen').onchange=()=>{ piece.len=+$('mxLen').value; storePiece(); };
+  $('mxPart').onchange=()=>{ piece.part=+$('mxPart').value; piece.from=0; renderPiece(); piece.from=+$('mxFrom').value; piece.a=undefined; storePiece(); };
+  $('mxFrom').onchange=()=>{ piece.from=+$('mxFrom').value; piece.a=undefined; storePiece(); };
+  $('mxLen').onchange=()=>{ piece.len=+$('mxLen').value; piece.a=undefined; storePiece(); };
   $('mxUse').onclick=e=>{ e.stopPropagation(); usePiece(); };
+  // the next / previous section of the same length
   function pieceStep(dir){
-    const part=piece.parts[piece.part], [a,b]=pieceRange(), first=+$('mxFrom').options[0].value;
-    if(dir>0){ if(b>=part.bars.length-1){ toast('That was the end of the piece.'); return; } piece.from=b+1; }
-    else { if(a<=first || piece.from<=first){ return; } piece.from=Math.max(first, piece.from-(piece.len||1)); }
-    storePiece(); renderPiece(); usePiece();
+    const part=piece.parts[piece.part], n=part.bars.length, [a,b]=pieceRange(), len=b-a+1;
+    if(dir>0){ if(b>=n-1){ toast('That was the end of the piece.'); return; } piece.a=b+1; piece.b=Math.min(n-1,b+len); }
+    else { if(a<=0) return; piece.b=a-1; piece.a=Math.max(0,a-len); }
+    piece.from=piece.a; storePiece(); renderPiece(); usePiece();
+  }
+  // one bar more or less at either end
+  function pieceEdge(k){
+    const part=piece.parts[piece.part], n=part.bars.length; let [a,b]=pieceRange();
+    if(k==='a-') a=Math.max(0,a-1); else if(k==='a+') a=Math.min(b,a+1);
+    else if(k==='b-') b=Math.max(a,b-1); else if(k==='b+') b=Math.min(n-1,b+1);
+    if(a===piece.a && b===piece.b) return;
+    piece.a=a; piece.b=b; piece.from=a; piece.len=b-a+1; storePiece(); renderPiece(); usePiece();
   }
   $('mxNext').onclick=e=>{ e.stopPropagation(); pieceStep(1); };
-  // above the sheet while practising the piece: where you are, previous / next bars
+  // above the sheet while practising the piece: the bars (each end can move by a bar), previous / next
   function renderPieceBar(){
-    const bar=$('pieceBar'), on=!!(piece && target && piece.str===target.str && !rtItem());
+    const bar=$('pieceBar'), on=!!(piece && target && piece.str===target.str && !rtItem() && !coach.full);
     bar.hidden=!on; if(!on) return;
-    const part=piece.parts[piece.part], [a,b]=pieceRange();
+    const part=piece.parts[piece.part], n=part.bars.length, [a,b]=pieceRange();
     bar.querySelector('b').textContent=piece.title||piece.file||'Piece';
-    bar.querySelector('.sheet-meta').textContent='· bars '+piece.label;
-    bar.querySelector('.prev').disabled=!piece.len || piece.from<=+$('mxFrom').options[0].value;
-    bar.querySelector('.next').disabled=!piece.len || b>=part.bars.length-1;
+    bar.querySelector('.ra').textContent=barLab(part,a); bar.querySelector('.rb').textContent=barLab(part,b);
+    bar.querySelector('.of').textContent='of '+barLab(part,n-1);
+    bar.querySelector('[data-k="a-"]').disabled=a<=0; bar.querySelector('[data-k="a+"]').disabled=a>=b;
+    bar.querySelector('[data-k="b-"]').disabled=b<=a; bar.querySelector('[data-k="b+"]').disabled=b>=n-1;
+    bar.querySelector('.prev').disabled=a<=0;
+    bar.querySelector('.next').disabled=b>=n-1;
   }
-  $('pieceBar').addEventListener('click',e=>{ const b=e.target.closest('button'); if(b) pieceStep(b.classList.contains('next')?1:-1); });
+  $('pieceBar').addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b || b.disabled) return;
+    if(b.dataset.k) pieceEdge(b.dataset.k); else pieceStep(b.classList.contains('next')?1:-1); });
   renderPiece();
 
   // ---- sight-reading: a phrase you haven't seen, by level; the level adapts (pib-sight) ----
