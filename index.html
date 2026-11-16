@@ -974,7 +974,7 @@ function makeBarge(){
     return score>=6;
   } };
 }
-function livePitch(buf, sr, A4){
+function livePitch(buf, sr, A4, low=0){
   const factor=Math.max(1,Math.round(sr/11025)), fs=sr/factor, n=Math.floor(buf.length/factor), x=new Float32Array(n);
   let e=0; for(let i=0;i<n;i++){ let s=0; for(let k=0;k<factor;k++) s+=buf[i*factor+k]; x[i]=s/factor; e+=x[i]*x[i]; }
   if(Math.sqrt(e/n)<0.004) return null;
@@ -985,7 +985,15 @@ function livePitch(buf, sr, A4){
   for(let t=tauMin;t<tauMax;t++){ if(cm[t]<0.12){ while(t+1<tauMax && cm[t+1]<cm[t]) t++; tau=t; break; } }
   if(tau<0) return null;
   const a=cm[tau-1], b=cm[tau], c=cm[tau+1], den=a-2*b+c, tr=den?tau+0.5*(a-c)/den:tau;
-  return 69+12*Math.log2((fs/tr)/(A4||440));
+  let m=69+12*Math.log2((fs/tr)/(A4||440));
+  // below the instrument: a ringing open string under the note (see detectNotes); take the period an
+  // octave (or octave and a fifth) up when most of the sound repeats there
+  if(low && m<low){
+    let ew=0; for(let j=0;j<W;j++) ew+=x[j]*x[j];
+    const sh=k=>{ const l=Math.round(tr/k); return l>=tauMin ? d[l]/(2*ew+1e-12) : 9; }, s2=sh(2), s3=sh(3);
+    if(Math.min(s2,s3)<=0.4) m += s3<0.7*s2 ? 19 : 12;
+  }
+  return m;
 }
 
 // The tempo at which the note lengths are simplest: every tempo from 40 to 180 bpm is tried, and each
@@ -2239,7 +2247,7 @@ function renderFix(x, sr, plan){
   }
   function liveFeed(buf, now){
     lBuf.copyWithin(0,buf.length); lBuf.set(buf, lBuf.length-buf.length);
-    const m=livePitch(lBuf, ac.sampleRate, A4());
+    const m=livePitch(lBuf, ac.sampleRate, A4(), lowNote());
     live.hist.push(m); if(live.hist.length>5) live.hist.shift();
     const v=live.hist.filter(x=>x!==null); if(v.length<3){ if(level<live.peak*0.55) live.dipped=true; return; }
     v.sort((a,b)=>a-b); const pm=v[v.length>>1], r=Math.round(pm);
@@ -2294,7 +2302,7 @@ function renderFix(x, sr, plan){
   $('tunerBtn').onclick=e=>{ e.stopPropagation(); openTuner(!tunerOpen); };
   function tunerFeed(buf){
     tBuf.copyWithin(0,buf.length); tBuf.set(buf, tBuf.length-buf.length);
-    const m=livePitch(tBuf, ac.sampleRate, A4());
+    const m=livePitch(tBuf, ac.sampleRate, A4(), lowNote());
     if(m===null){ tHist.push(null); } else tHist.push(m);
     if(tHist.length>5) tHist.shift();
     const v=tHist.filter(x=>x!==null);
