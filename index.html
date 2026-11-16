@@ -240,6 +240,11 @@ button.lnk{border:none; background:transparent; color:var(--play); font-weight:6
 .coachbar{background:color-mix(in srgb, var(--play) 9%, var(--surface))}
 .coachbar .nm small{color:var(--muted); font-size:.8rem}
 .coachbar .nm .c-bad{font-weight:600}
+.coachbar .nm{white-space:normal; line-height:1.35}
+.coachbar .nm small b{color:var(--ink); font-weight:600}
+.pips{display:inline-flex; gap:3px; vertical-align:middle; margin-left:4px}
+.pips i{width:8px; height:8px; border-radius:50%; background:var(--line2)}
+.pips i.on{background:var(--ok)}
 .metro .drone + .drone{margin-left:0}
 /* zen mode: no notes, no feedback - play and listen */
 .zenbar{display:none; align-items:center; justify-content:space-between; gap:10px; color:var(--muted); font-size:.88rem;
@@ -1844,7 +1849,8 @@ function renderFix(x, sr, plan){
   // ---- target: notes to play ----
   let target=null, sheetView='result', halfSpeed=false;
   // (coach: see 'Coach' below; declared here because setTarget ends its passage practice)
-  const coach={on:false, full:null, a:0, b:0, tries:0, good:0, why:''};
+  // phase: 'whole' (play the exercise) | 'clean' (it was) | 'yours' / 'right' (the demo playing) | 'turn' (play the passage)
+  const coach={on:false, full:null, a:0, b:0, tries:0, good:0, why:'', phase:'whole'};
   let coachSetting=false;
   function setTarget(str, quiet){
     if(!coachSetting && coach.full){ coach.full=null; coach.tries=0; coach.good=0; setTimeout(renderCoachBar,0); }
@@ -2588,7 +2594,7 @@ function renderFix(x, sr, plan){
   function coachTarget(str){ coachSetting=true; setTarget(str, true); coachSetting=false; if(target && coach.full) target.coach=true; }
   function coachBack(msg){
     if(coach.full){ coachTarget(coach.full.str); target.coach=false; coach.full=null; }
-    coach.tries=0; coach.good=0;
+    coach.tries=0; coach.good=0; coach.phase='whole'; coach.slower=0;
     if(msg) toast(msg);
     shownTake=null; sheetView='result'; renderCoachBar(); renderSheet();
   }
@@ -2598,40 +2604,52 @@ function renderFix(x, sr, plan){
     if(!t.notes || !t.notes.length){ resume(); return; }
     if(!t.target){                                  // no target: hear it fixed when something is off
       const n=t.notes.length, FX=notesFix(t, rhythmOf(t).lens);
-      if(FX.n) hearFixed(t, 0, n-1, false); else { toast('Nothing to fix'); resume(); }
+      if(FX.n) hearFixed(t, 0, n-1, false, true); else { coach.phase='clean'; renderCoachBar(); resume(); }
       return;
     }
     const iss=coachIssues(t);
     if(!coach.full){                                // the whole exercise
-      if(!iss.length){ toast('Clean! Once more'); resume(); return; }
+      if(!iss.length){ coach.phase='clean'; renderCoachBar(); resume(); return; }
       const P=coachPassage(t, iss), full=target && target.str===t.target.str ? target : t.target;
-      coach.full={...full}; coach.a=P.a; coach.b=P.b; coach.why=P.why; coach.tries=0; coach.good=0;
+      coach.full={...full}; coach.a=P.a; coach.b=P.b; coach.why=P.why; coach.tries=0; coach.good=0; coach.slower=0;
       coachTarget(passageStr(t.target, P.a, P.b));
-      shownTake=null; renderCoachBar(); renderSheet();
-      hearFixed(t, P.a, P.b, true);
+      shownTake=null; renderSheet();
+      hearFixed(t, P.a, P.b, true, true);
       return;
     }
     if(!iss.length){                                // the passage, right
       coach.good++;
-      if(coach.good>=2) coachBack('Got it. Now the whole thing');
-      else { toast('Right! Once more'); renderCoachBar(); }
+      if(coach.good>=2) coachBack('Got it ✓ Now the whole piece');
+      else { coach.phase='turn'; renderCoachBar(); shownTake=null; renderSheet(); }
       resume(); return;
     }
     coach.good=0; coach.tries++; coach.why=iss[0].txt;
-    if(coach.tries>=5){ coachBack('Let’s leave that for now. The whole thing again'); resume(); return; }
-    if(coach.tries===3 && metro.on){ setMetroBpm(Math.max(30, Math.round(metro.bpm*0.9))); toast('A bit slower: '+metro.bpm+' bpm'); }
-    renderCoachBar();
-    hearFixed(t, 0, t.target.notes.length-1, true);
+    if(coach.tries>=5){ coachBack('Let’s leave that for now. The whole piece again'); resume(); return; }
+    if(coach.tries===3 && metro.on){ setMetroBpm(Math.max(30, Math.round(metro.bpm*0.9))); coach.slower=metro.bpm; }
+    shownTake=null; renderSheet();
+    hearFixed(t, 0, t.target.notes.length-1, true, true);
   }
   function renderCoachBar(){
-    const bar=$('coachBar'), on=coach.on && !!coach.full;
+    const bar=$('coachBar'), on=coach.on && !series;
     bar.hidden=!on; if(!on) return;
-    bar.innerHTML='<span class="nm"><b>Try these notes</b> <small>'+(coach.a+1)+'–'+(coach.b+1)+(coach.tries?' · try '+(coach.tries+1):'')+(coach.good?' · 1 right':'')+'</small><br><small>'+coach.why+'</small></span>'
-      +'<button class="hear-again" aria-label="Hear it right">'+PLAYSVG+'</button><button class="skip">Skip</button>';
+    let head, line, btns='';
+    if(!coach.full){
+      head = coach.phase==='clean' ? '✓ Clean' : 'Coach';
+      line = !target ? (coach.phase==='clean' ? 'Nothing to fix. Play again' : 'Play anything: I play it back fixed')
+        : coach.phase==='clean' ? 'Play it again, or choose other notes' : 'Play the whole piece. I pick one thing to practise';
+    } else {
+      head='Practise notes '+(coach.a+1)+'–'+(coach.b+1);
+      const pips='<span class="pips" title="Right twice in a row to finish">'+[0,1].map(k=>'<i'+(k<coach.good?' class="on"':'')+'></i>').join('')+'</span>';
+      const st = coach.phase==='yours' ? '<b>Listen:</b> yours…' : coach.phase==='right' ? '<b>Listen:</b> …now right'
+        : coach.good ? '<b>Right!</b> Once more' : coach.tries ? '<b>Not yet.</b> Try '+(coach.tries+1)+' of 5'+(coach.slower?' · slower, '+coach.slower+' bpm':'') : '<b>Your turn:</b> play just these notes';
+      line = coach.why+'<br>'+st+' '+pips;
+      btns='<button class="hear-again" aria-label="Hear it right" title="Hear it right">'+PLAYSVG+'</button><button class="skip" title="Back to the whole piece">Skip</button>';
+    }
+    bar.innerHTML='<span class="nm"><b>'+head+'</b><br><small>'+line+'</small></span>'+btns;
   }
   $('coachBar').addEventListener('click',e=>{
     const b=e.target.closest('button'); if(!b) return;
-    if(b.classList.contains('skip')){ coachBack(); return; }
+    if(b.classList.contains('skip')){ coachBack(); if(active && state==='listening') setState('listening'); return; }
     // hear the passage right: the last take of it fixed, else the synth
     const t=takes.find(k=>k.target && k.notes && k.notes.length && target && k.target.str===target.str);
     if(t) hearFixed(t, 0, t.target.notes.length-1, false); else if(target) hearTarget(target.notes, target.durs, target.onsets);
@@ -2716,6 +2734,13 @@ function renderFix(x, sr, plan){
     const [ic,label]=map[s];
     $('icon').innerHTML = ic?ICONS[ic]:'';
     stateText.textContent=label;
+    if(coach.on && active){
+      if(s==='listening' && coach.full && (coach.phase==='yours' || coach.phase==='right')){ coach.phase='turn'; setTimeout(renderCoachBar,0); }
+      const L = (s==='playing' || s==='cooldown') && coach.phase==='yours' ? 'Yours' : (s==='playing' || s==='cooldown') && coach.phase==='right' ? 'Right'
+        : s==='cooldown' ? 'Checking' : s==='listening' && coach.full ? 'Your turn' : null;
+      if(L) stateText.textContent=L;
+      if(L==='Checking') $('icon').innerHTML=ICONS.ear;
+    }
     timer.hidden = s!=='recording';
     orb.setAttribute('aria-label', {idle:'Start',listening:'Listening. Tap to turn off',recording:'Recording. Tap to finish',playing:'Playback. Tap to skip',cooldown:'Playback'}[s]);
     if(s!=='recording') timer.textContent='';
@@ -3432,7 +3457,7 @@ function renderFix(x, sr, plan){
     return plan;
   }
   // play the corrected notes; withYours: first the same notes as played, then a short pause
-  async function hearFixed(t, a, b, withYours){
+  async function hearFixed(t, a, b, withYours, forCoach){
     if(!t || !t.notes || !t.notes.length || state==='recording') return;
     ensureAC(); try{ await ac.resume(); }catch(e){} anchorClock();
     const x=t.buffer.getChannelData(0), sr=t.buffer.sampleRate, plan=fixPlan(t, a, b);
@@ -3447,8 +3472,11 @@ function renderFix(x, sr, plan){
     const n=parts.reduce((k,y)=>k+y.length,0), buf=ac.createBuffer(1,n,sr), all=new Float32Array(n);
     let o=0; for(const y of parts){ all.set(y,o); o+=y.length; }
     buf.copyToChannel(all,0);
-    toast(withYours ? 'Yours, then right' : 'Your take, fixed');
-    playTake({id:'fix', buffer:buf}, 1);
+    if(!forCoach) toast(withYours ? 'Yours, then right' : 'Your take, fixed');
+    const yoursLen = parts.length>1 ? (parts[0].length+parts[1].length*0.5)/sr : 0;
+    if(forCoach){ coach.phase = yoursLen ? 'yours' : 'right'; renderCoachBar(); }
+    await playTake({id:'fix', buffer:buf}, 1);
+    if(forCoach && yoursLen){ const id=buf; setTimeout(()=>{ if(playing && playing.buf===id && coach.phase==='yours'){ coach.phase='right'; stateText.textContent='Right'; renderCoachBar(); } }, yoursLen*1000); }
   }
   // a mistake row's ▶: that note with one note either side
   $('sheet').addEventListener('click',e=>{
@@ -3501,6 +3529,14 @@ function renderFix(x, sr, plan){
       hl=null; $('notelist').innerHTML=HEAR; return;
     }
     const key=keyOf(target.notes);
+    if(target.coach && coach.full){
+      // practising a passage: the whole piece, the passage in colour and the rest faded
+      const F=coach.full, pc=css('--play'), mc=css('--muted');
+      $('sheetTitle').textContent='Notes to play'; $('sheetMeta').textContent='notes '+(coach.a+1)+'–'+(coach.b+1)+' in colour';
+      hl={take:null, target:true, els:drawStaff(targetEvents(F), keyOf(F.notes), F.notes.map((m,i)=>i>=coach.a && i<=coach.b ? {color:pc} : {color:mc, faint:true}), tBeats(F)), cur:-1};
+      $('notelist').innerHTML='<div class="hearrow">'+HEAR+'</div>';
+      return;
+    }
     hl={take:null, target:true, els:drawStaff(targetEvents(target), key, null, tBeats(target)), cur:-1};
     $('notelist').innerHTML = target.sight ? '<div class="sightbar"><span class="tx"><b>Read it, then play</b><small>Sight-reading level '+target.sight.level+' · no listening first</small></span></div>'
       : '<div class="hearrow">'+HEAR+MXBTN+'</div>'+(target.coach?'':progressHTML(target.str)+SERIES_LINK);
@@ -3997,7 +4033,7 @@ function renderFix(x, sr, plan){
   $('zenBox').checked=document.body.classList.contains('zen'); renderFocus(); renderLiveTog();
   loadLinkedExercise();
   if((()=>{ try{ return !localStorage.getItem('pib-guide'); }catch(e){ return false; } })()) setTimeout(showGuide, 600);
-  setState('idle'); pedalSync(); renderStrings(); renderSheet(); renderMetro(); renderRoutineBar(); restoreTakes();
+  setState('idle'); pedalSync(); renderStrings(); renderSheet(); renderMetro(); renderRoutineBar(); renderCoachBar(); restoreTakes();
   requestAnimationFrame(draw);
 })();
 </script>

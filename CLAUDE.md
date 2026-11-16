@@ -183,8 +183,12 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   `coach.full` holds the exercise, which is what gets saved). It plays yours then right (`hearFixed`) and
   listens to the passage; right twice in a row = back to the whole exercise; each miss replays the demo;
   try 3 slows the metronome 10%; after 5 tries back to the whole exercise. Passage takes don't count for
-  progress, ladder or recurring problems. The coach bar shows the problem, a play button and Skip; setting
-  any other target ends the passage. Without target notes it plays 'Yours, fixed' when something is off.
+  progress, ladder or recurring problems. Setting any other target ends the passage. What is going on is
+  always shown: the big button says Yours / Right (the demo's two halves, `coach.phase`), Checking (reading
+  a take), Your turn (listening for the passage); the coach bar (always there while Coach is on) says
+  'Play the whole piece…', '✓ Clean', or 'Practise notes 3–5', the problem, Listen / Your turn / Right!
+  Once more / Not yet, try 2 of 5, and two dots for the two right takes, with ▶ (hear it right) and Skip;
+  the staff shows the whole piece with the passage in colour and the rest faded. Without target notes it plays 'Yours, fixed' when something is off.
 - **Mistakes on the staff** (`fixList(..., inline)`, `markStaff`): each problem note carries a short label in its
   colour (the note played below a wrong one; above: '+27' / '−15' cents, 'long', 'short', 'early', 'late',
   the most serious only). Tapping a marked note (nearest within 40 px) shows one line in plain words
