@@ -56,7 +56,7 @@ under the big button (`placeSettings()`), Tempo and Controls stay in the menu.
 ## Important details
 - **iPhone:** while the mic is open, iOS routes audio to the earpiece. The app closes the mic before
   playback and reopens it afterwards (`micOff` / `micOn`, `navigator.audioSession`). Keep this.
-  Exception: Settings > Listening > 'Stop it when I start playing' keeps the mic open during playback to
+  Exception: Settings > Listening > 'Stop when I play' keeps the mic open during playback to
   hear the player (`makeBarge`: mic pitch vs the playback buffer 0-0.3 s back, octaves equal, or 9 dB over
   the echo level measured in the first 0.8 s; ~0.25 s in a row). On by default except on iPhone, where it
   needs headphones. Offline: the speaker echo alone (also reverberant, full volume) never triggers it;
@@ -66,7 +66,9 @@ under the big button (`placeSettings()`), Tempo and Controls stay in the menu.
   and are restored, and their notes re-detected, when the page opens.
 - The player is a violinist. Test changes against real violin behaviour: bow swells, vibrato,
   scratchy attacks, held first notes.
-- UI is deliberately minimal: big state button, icons, little explanatory text.
+- UI is deliberately minimal and compact: big state button, icons, little explanatory text. Explanations
+  live in tooltips (`title`); on phones the MusicXML / Share / Report buttons show only their icon
+  (`.share.ic .lbl`); messages (`toast`) float at the bottom instead of pushing the page down.
   Supports light and dark mode via CSS variables.
 
 ## Testing
