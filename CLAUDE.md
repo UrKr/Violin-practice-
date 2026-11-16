@@ -95,8 +95,12 @@ An open string left ringing (or ringing in sympathy) under a higher note makes t
 period (G4 over a ringing G3 reads G3; D4 over it reads G2). Two fixes: `detectNotes(..., low)` gets the
 instrument's lowest open string less a whole step (`lowNote()`); a note below it goes up an octave (or an
 octave and a fifth, whichever period the sound repeats at better) when most of the sound repeats there
-(a sung low note doesn't, and stays). And a single note 10+ semitones below its neighbours, an octave up
-within a whole step of them and not the same note name, goes up an octave. Limitation: a G3 as loud as
+(a sung low note doesn't, and stays). And the melody decides: a note, or a run of up to 3 moving by step,
+that jumps 9+ semitones away from the notes on both sides the same way, while an octave back it would be
+within a fourth of them, moves an octave (single notes first). Not when it has the same note name as a
+neighbour (a real octave leap), and the sound must not disagree (up: it repeats at the higher period;
+down: it doesn't repeat cleanly at its own period but does at twice it); with 2+ other big leaps in the
+take (octave studies, broken chords) the sound has to agree clearly. Real sixths across strings stay. Limitation: a G3 as loud as
 -6 dB under a G4 between notes a fifth away (D4 G4 D4) can't be told from a real G3. Test signals keep only ~0.35 s of silence at each end, like
 real takes: offline signals with long silences hid a noise-floor bug once. Also check the real reports
 (`tools/replay.mjs`) - a real violin's strong harmonics and room echo behave differently from synthesis.

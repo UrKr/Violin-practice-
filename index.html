@@ -861,15 +861,36 @@ function detectNotes(data, sr, A4, detail=0, low=28){
     const s2=[]; for(let f=o.a;f<=o.b;f++) if(r[f]===o.midi) s2.push(sub2[f]);
     if(s2.length && med(s2)<0.35){ for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && r[f]===o.midi) pitch[f]-=12; o.midi-=12; }
   }
-  // The other way round: a single note an octave too low. A G4 over the open G string still ringing (or
-  // ringing in sympathy) repeats every G3 period, so it reads G3. It sits 10+ semitones below its
-  // neighbours, an octave higher it would be within a whole step of them, and it is not the same note
-  // name as them (G4 G3 is a real octave leap). With one neighbour only (first or last note), the same.
-  for(let i=0;i<notes.length;i++){
-    const o=notes[i], nbs=[notes[i-1],notes[i+1]].filter(n=>n && (n===notes[i-1] ? o.a-n.b : n.a-o.b)<=30);
-    if(!nbs.length || !nbs.every(n=>n.midi-o.midi>=10 && Math.abs(o.midi+12-n.midi)<=2 && (n.midi-o.midi)%12!==0)) continue;
-    for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && Math.abs(pitch[f]-o.midi)<0.8) pitch[f]+=12;
-    o.midi+=12;
+  // Melodic octave check: a note, or a run of up to 3 moving by step, that jumps 9+ semitones away from
+  // the notes on both sides (the same way), while an octave back it would be within a fourth of them, is
+  // in the wrong octave: its neighbours are still in the other octave. (A G4 over the open G ringing reads
+  // G3; a scratchy attack or a harmonic reads an octave up.) Not when it has the same note name as a
+  // neighbour (a real octave leap: G3 G4), and the sound must not say otherwise: a real E4 after G3 (a
+  // sixth across strings) doesn't repeat like an E3. In a passage with big leaps elsewhere (octaves,
+  // broken chords) the sound has to agree clearly.
+  const bigLeaps=notes.filter((o,i)=>i && Math.abs(o.midi-notes[i-1].midi)>=9).length;
+  // (single notes first, then runs of 2 and 3: the smallest correction wins)
+  for(let len=1; len<=3; len++) for(let i=0;i+len<=notes.length;i++){
+    {
+      const run=notes.slice(i,i+len), p=notes[i-1], q=notes[i+len];
+      if(run.some((o,k)=>k && (Math.abs(o.midi-run[k-1].midi)>5 || o.a-run[k-1].b>30))) continue;
+      const joins=[p && run[0].a-p.b<=30 ? [p,run[0]] : null, q && q.a-run[len-1].b<=30 ? [q,run[len-1]] : null].filter(Boolean);
+      if(!joins.length) continue;
+      const leapy = bigLeaps-joins.length >= 2;
+      let moved=false;
+      for(const dir of [12,-12]){
+        if(!joins.every(([n,e])=>(dir>0 ? n.midi-e.midi : e.midi-n.midi)>=9 && Math.abs(e.midi+dir-n.midi)<=5 && (n.midi-e.midi)%12!==0)) continue;
+        const agrees = run.every(o=>{
+          const L=lag(o.midi);
+          if(dir>0) return share(o, L/2) < (leapy ? 0.4 : 0.8);           // it repeats at the higher octave's period
+          const own=share(o, L); return own>0.08 && share(o, 2*L) < (leapy ? 0.35 : 0.7)*own;   // doesn't repeat cleanly at its own period, better at twice it
+        });
+        if(!agrees) continue;
+        for(const o of run){ for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && Math.abs(pitch[f]-o.midi)<0.8) pitch[f]+=dir; o.midi+=dir; }
+        moved=true; break;
+      }
+      if(moved) i+=len-1;
+    }
   }
   // A voice (or a slide) hovering around the halfway point between two notes splits into short
   // pieces a semitone apart (E D# E D# E, or a scoop C B C). Neighbours a semitone apart whose real

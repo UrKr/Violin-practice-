@@ -59,6 +59,12 @@ const cases = [
   ['G4 over a G3 at -12 dB', ring(take([[62, 1], [67, 2], [62, 1], [67, 2]]), 55, 0, 0.25, 99), 'D4 G4 D4 G4'],
   // a G3 as loud as -6 dB under a G4 can't be told from the sound; the melody decides (D4 G3 D4 stays)
   ['scale top G4 over a G3 at -6 dB', ring(take([[62, 1], [64, 1], [66, 1], [67, 2]]), 55, 3, 0.5, 99), 'D4 E4 F♯4 G4'],
+  // the melody decides: notes a sixth or more from both neighbours, steps an octave away, are in the wrong octave
+  ['run of two over a G3 at -6 dB', ring(take([[64, 1], [66, 1], [67, 1], [69, 1], [71, 1], [72, 1]]), 55, 2, 0.5, 99, 4), 'E4 F♯4 G4 A4 B4 C5'],
+  // ...but real leaps stay: sixths across strings, a passage of rising sixths, an octave study
+  ['real sixths across strings', take([[55, 1], [64, 1], [55, 1], [64, 1], [62, 1], [71, 1], [62, 2]], { amps: WEAK }), 'G3 E4 G3 E4 D4 B4 D4'],
+  ['rising sixths', take([[55, 1], [64, 1], [57, 1], [66, 1], [59, 1], [67, 1], [60, 1], [69, 2]]), 'G3 E4 A3 F♯4 B3 G4 C4 A4'],
+  ['octave study', take([[55, 1], [67, 1], [57, 1], [69, 1], [59, 1], [71, 1], [60, 2]], { amps: WEAK }), 'G3 G4 A3 A4 B3 B4 C4'],
   ['note hovering between D# and E', take([[60, 1], [62, 1], [64, 1.5, -45, 18], [65, 1], [67, 1]], { vib: 0.002 }), 'C4 D4 E4 F4 G4'],
   // slides / scratchy starts: a 100 ms slip a whole step below each note. Clean ignores them, Detailed shows them.
   ['slips into notes (clean)', take(G.flatMap(m => [[m - 2, 0.1], [m, 0.9]])), 'G3 A3 B3 C4 D4 E4 F♯4 G4', 0],
