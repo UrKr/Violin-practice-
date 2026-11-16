@@ -237,6 +237,10 @@ button.lnk{border:none; background:transparent; color:var(--play); font-weight:6
 .routine button{height:30px; min-width:34px; padding:0 10px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink); font-weight:600}
 .routine button.next{background:var(--play); border-color:var(--play); color:#fff}
 .routine button:disabled{opacity:.35}
+.coachbar{background:color-mix(in srgb, var(--play) 9%, var(--surface))}
+.coachbar .nm small{color:var(--muted); font-size:.8rem}
+.coachbar .nm .c-bad{font-weight:600}
+.metro .drone + .drone{margin-left:0}
 /* zen mode: no notes, no feedback - play and listen */
 .zenbar{display:none; align-items:center; justify-content:space-between; gap:10px; color:var(--muted); font-size:.88rem;
   background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:8px 8px 8px 14px; margin-bottom:12px}
@@ -602,6 +606,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
       <button class="tog" id="mToggle" aria-pressed="false">♩ 72</button>
       <button class="step" id="mPlus" aria-label="Faster">+</button>
       <button class="drone" id="droneBtn" aria-pressed="false">Drone</button>
+      <button class="drone" id="coachBtn" aria-pressed="false" title="Coach: after each take it picks what to practise, plays it for you (yours, then right) and listens to just that, until it's right">Coach</button>
     </div>
     <div class="dots" id="dots" aria-hidden="true"></div>
     <div class="seg focus" id="focusSeg" role="group" aria-label="What to focus on">
@@ -618,6 +623,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
   <div class="content">
 
   <div class="routine" id="routineBar" hidden></div>
+  <div class="routine coachbar" id="coachBar" hidden></div>
   <div class="routine" id="pieceBar" hidden><span class="nm"><b></b> <span class="sheet-meta"></span></span><button class="prev" aria-label="Previous bars">‹</button><button class="next">Next ›</button></div>
   <div class="toast" id="toast" hidden role="status"></div>
   <div class="seriesbar" id="seriesBar" hidden></div>
@@ -1767,7 +1773,11 @@ function renderFix(x, sr, plan){
 
   // ---- target: notes to play ----
   let target=null, sheetView='result', halfSpeed=false;
+  // (coach: see 'Coach' below; declared here because setTarget ends its passage practice)
+  const coach={on:false, full:null, a:0, b:0, tries:0, good:0, why:''};
+  let coachSetting=false;
   function setTarget(str, quiet){
+    if(!coachSetting && coach.full){ coach.full=null; coach.tries=0; coach.good=0; setTimeout(renderCoachBar,0); }
     str=(str||'').trim();
     if(!str){ target=null; }
     else {
@@ -2325,7 +2335,7 @@ function renderFix(x, sr, plan){
   // ---- each exercise's recurring problems, kept for the practice plan (pib-issues) ----
   let issuesStore=null;
   function rememberIssues(t){
-    if(!t.target || t.target.ear || sameTargetTakes(t.target).length<2) return;
+    if(!t.target || t.target.ear || t.target.coach || sameTargetTakes(t.target).length<2) return;
     issuesStore=issuesStore||loadJ('pib-issues',{});
     const S=summarize(t.target), plain=h=>h.replace(/<[^>]+>/g,'');
     issuesStore[t.target.str]={when:today(), K:S.K, top:S.issues.filter(x=>x.i>=0).slice(0,2).map(x=>({txt:noteName(t.target.notes[x.i],S.key)+' '+plain(x.part), n:x.n}))};
@@ -2449,7 +2459,7 @@ function renderFix(x, sr, plan){
   let streak=0, pendingBpm=null;
   function onAnalyzed(t){
     if(t.target && t.target.sight && t.notes && t.notes.length) sightResult(t);
-    if(!t.target || !t.notes || document.body.classList.contains('zen')) return;
+    if(!t.target || !t.notes || t.target.coach || document.body.classList.contains('zen')) return;
     const r=judge(alignTarget(t.target.notes, t.notes, t.target.hasOct), keyOf(t.target.notes));
     const cnt={ok:0,tune:0,wrong:0,missed:0}; r.items.forEach(it=>cnt[it.status]++);
     const R=fb.rhythm ? targetRhythm(t, r) : null;
@@ -2467,6 +2477,99 @@ function renderFix(x, sr, plan){
     } else if(clean) toast('Clean take');
   }
   function applyPending(){ if(pendingBpm){ setMetroBpm(pendingBpm); pendingBpm=null; } }
+
+  // ---- Coach: after each take, the most important mistake becomes a short passage to practise.
+  // It plays that passage as you played it and then right (hearFixed), and listens to just the passage.
+  // Right twice in a row: back to the whole exercise. Still wrong after 3 tries: 10% slower (with the
+  // metronome); after 5: on to the whole exercise again. Without target notes it plays your take fixed.
+  function coachIssues(t){
+    const tt=t.target, key=keyOf(tt.notes), r=judge(alignTarget(tt.notes, t.notes, tt.hasOct), key), R=targetRhythm(t, r), out=[];
+    const nm=i=>noteName(r.items[i].midi,key);
+    r.items.forEach((it,i)=>{
+      if(it.status==='wrong') out.push({i, sev:0, txt:nm(i)+': you played <span class="c-bad">'+noteName(it.played.midi,key)+'</span>'});
+      else if(it.status==='missed') out.push({i, sev:0, txt:nm(i)+' missed'});
+      else if(it.status==='tune' && fb.tune) out.push({i, sev:2, txt:nm(i)+' '+Math.abs(it.cents)+' cents '+(it.cents>0?'sharp':'flat')});
+    });
+    if(R && fb.rhythm) R.flags.forEach(f=>out.push({i:f.i, sev:1, rhythm:true, txt:nm(f.i)+' '+(f.pct!==undefined ? 'held '+pctTxt(f.pct)+(f.kind==='long'?' too long':' too short') : beatsTxt(f.beats)+(f.kind==='early'?' early':' late'))}));
+    return out.sort((x,y)=>x.sev-y.sev || x.i-y.i);
+  }
+  // the passage around the first, most serious mistake (the one that keeps coming back, if there is
+  // one): a note before (two for a rhythm problem), one after, and any mistakes close by; 6 notes at most
+  function coachPassage(t, iss){
+    const n=t.target.notes.length, tt=t.target;
+    let x=iss[0];
+    if(sameTargetTakes(tt).length>=3){ const S=summarize(tt), top=S.issues.find(y=>y.i>=0); const m=top && iss.find(y=>y.i===top.i); if(m) x=m; }
+    let a=Math.max(0, x.i-(x.rhythm?2:1)), b=Math.min(n-1, x.i+1);
+    for(const y of iss.map(y=>y.i).sort((p,q)=>p-q)) if(y>b && y<=b+2 && y-a<6) b=Math.min(n-1,y+1);
+    while(b-a+1<3 && (a>0 || b<n-1)){ if(b<n-1) b++; else a--; }
+    b=Math.min(b, a+5);
+    return {a, b, why:x.txt};
+  }
+  // the passage as target notes, keeping where it sits in the bar
+  function passageStr(tt, a, b){
+    const notes=tt.notes.slice(a,b+1), key=keyOf(tt.notes);
+    let durs=null, onsets=null;
+    if(tt.durs){ const bar=tt.meter ? lyBeats(tt.meter) : metro.bpb, lead=tt.onsets[a]%bar;
+      durs=tt.durs.slice(a,b+1); onsets=tt.onsets.slice(a,b+1).map(o=>o-tt.onsets[a]+lead); }
+    return writeLy({notes, names:tt.names?tt.names.slice(a,b+1):null, durs, onsets, meter:tt.meter, key:KEYS.includes(key)?key.name:null, bare:!tt.hasOct});
+  }
+  function coachTarget(str){ coachSetting=true; setTarget(str, true); coachSetting=false; if(target && coach.full) target.coach=true; }
+  function coachBack(msg){
+    if(coach.full){ coachTarget(coach.full.str); target.coach=false; coach.full=null; }
+    coach.tries=0; coach.good=0;
+    if(msg) toast(msg);
+    shownTake=null; sheetView='result'; renderCoachBar(); renderSheet();
+  }
+  function coachAfter(t){
+    if(!active) return;
+    const resume=()=>afterPlayback();
+    if(!t.notes || !t.notes.length){ resume(); return; }
+    if(!t.target){                                  // no target: hear it fixed when something is off
+      const n=t.notes.length, FX=notesFix(t, rhythmOf(t).lens);
+      if(FX.n) hearFixed(t, 0, n-1, false); else { toast('Nothing to fix'); resume(); }
+      return;
+    }
+    const iss=coachIssues(t);
+    if(!coach.full){                                // the whole exercise
+      if(!iss.length){ toast('Clean! Once more'); resume(); return; }
+      const P=coachPassage(t, iss), full=target && target.str===t.target.str ? target : t.target;
+      coach.full={...full}; coach.a=P.a; coach.b=P.b; coach.why=P.why; coach.tries=0; coach.good=0;
+      coachTarget(passageStr(t.target, P.a, P.b));
+      shownTake=null; renderCoachBar(); renderSheet();
+      hearFixed(t, P.a, P.b, true);
+      return;
+    }
+    if(!iss.length){                                // the passage, right
+      coach.good++;
+      if(coach.good>=2) coachBack('Got it. Now the whole thing');
+      else { toast('Right! Once more'); renderCoachBar(); }
+      resume(); return;
+    }
+    coach.good=0; coach.tries++; coach.why=iss[0].txt;
+    if(coach.tries>=5){ coachBack('Let’s leave that for now. The whole thing again'); resume(); return; }
+    if(coach.tries===3 && metro.on){ setMetroBpm(Math.max(30, Math.round(metro.bpm*0.9))); toast('A bit slower: '+metro.bpm+' bpm'); }
+    renderCoachBar();
+    hearFixed(t, 0, t.target.notes.length-1, true);
+  }
+  function renderCoachBar(){
+    const bar=$('coachBar'), on=coach.on && !!coach.full;
+    bar.hidden=!on; if(!on) return;
+    bar.innerHTML='<span class="nm"><b>Try these notes</b> <small>'+(coach.a+1)+'–'+(coach.b+1)+(coach.tries?' · try '+(coach.tries+1):'')+(coach.good?' · 1 right':'')+'</small><br><small>'+coach.why+'</small></span>'
+      +'<button class="hear-again" aria-label="Hear it right">'+PLAYSVG+'</button><button class="skip">Skip</button>';
+  }
+  $('coachBar').addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b) return;
+    if(b.classList.contains('skip')){ coachBack(); return; }
+    // hear the passage right: the last take of it fixed, else the synth
+    const t=takes.find(k=>k.target && k.notes && k.notes.length && target && k.target.str===target.str);
+    if(t) hearFixed(t, 0, t.target.notes.length-1, false); else if(target) hearTarget(target.notes, target.durs, target.onsets);
+  });
+  function setCoach(on){
+    coach.on=on; $('coachBtn').setAttribute('aria-pressed', on);
+    if(!on && coach.full) coachBack(); else renderCoachBar();
+    save();
+  }
+  $('coachBtn').onclick=()=>{ setCoach(!coach.on); if(coach.on) toast(target ? 'Coach on: after each take, what to practise' : 'Coach on. With target notes it picks passages to practise'); };
 
   // ---- drone ----
   let drone=null;
@@ -2495,9 +2598,9 @@ function renderFix(x, sr, plan){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:target&&!target.ear&&!target.sight?target.str:'',A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:(t=>t&&!t.ear&&!t.sight?t.str:'')(coach.full||target),coach:coach.on,A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
-    if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
+    if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); coach.on=!!s.coach; $('coachBtn').setAttribute('aria-pressed',coach.on); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
       if(s.manualBpm) bpm.value=s.manualBpm; if(typeof s.autoBpm==='boolean') autoBpm.checked=s.autoBpm; halfSpeed=!!s.half;
       if(s.fb) for(const k in fb) if(typeof s.fb[k]==='boolean') fb[k]=s.fb[k];
@@ -2689,9 +2792,12 @@ function renderFix(x, sr, plan){
     $('paper').innerHTML='<div class="sheet-empty">Reading the notes…</div>';
 
     if(series){ series.ids.push(take.id); take.series=true; setState(active?'listening':'idle'); renderSeriesBar(); }
+    else if(coach.on && active){ setState('cooldown'); take.coachWait=true; }
     else if(auto.checked && active) playTake(take, +rep.value);
     else setState(active?'listening':'idle');
-    setTimeout(()=>{ take.A=A4(); take.detail=detail(); take.notes=detectNotes(data,sr,A4(),take.detail); take.bpm=guessTempo(take.notes); take.key=guessKey(take.notes); recordTendency(take); onAnalyzed(take); rememberIssues(take); if(shownTake===take) renderSheet();
+    setTimeout(()=>{ take.A=A4(); take.detail=detail(); take.notes=detectNotes(data,sr,A4(),take.detail); take.bpm=guessTempo(take.notes); take.key=guessKey(take.notes); recordTendency(take); onAnalyzed(take); rememberIssues(take);
+      if(take.coachWait){ take.coachWait=false; coachAfter(take); }
+      if(shownTake===take) renderSheet();
       if(series && series.ids.length>=series.n && takes.filter(k=>series.ids.includes(k.id)).every(k=>k.notes)) endSeries(); },60);
   }
 
