@@ -260,6 +260,10 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   ('C♯4 you played C4 · ¼ beat late') and plays it yours, then right. Below the staff only the counts,
   general points (intervals, extra notes, 'Most often') and ✓ lines; a steady tempo is a ✓ line, the graph
   shows only when something is off. The Summary keeps its numbered rows.
+  What you played, above the notes (Settings > Feedback, hidden switch `fb.ossia`, on): the target result
+  draws the same ossia as Coach over all bars (`playedOver(t, tt, 0, last, noTime)`) when a note was wrong or
+  extra, or (rhythm judged) off in time; a clean or only out-of-tune take keeps one staff. The written staff's
+  played-note labels are dropped then (the note is on the staff above).
 - **Focus** (row under the metronome): All / Tuning / Rhythm / Notes / Zen set the Feedback switches in one
   tap (`FOCUS` presets: intonation, rhythm, written feedback; Zen = zen mode); no button is lit for a custom mix.
 - **Training** (notes panel): **Rhythm drill** (`makeDrill`, `DRILLS`): two bars of 4/4 on one open string

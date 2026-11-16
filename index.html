@@ -479,6 +479,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           <div class="set"><span></span><label class="check"><input type="checkbox" id="fbLive" checked> Live note while playing</label></div>
           <div class="set adv"><span></span><label class="check"><input type="checkbox" id="fbTune" checked> Intonation</label></div>
           <div class="set adv"><span></span><label class="check"><input type="checkbox" id="fbRhythm" checked> Rhythm (note lengths)</label></div>
+          <div class="set adv"><span></span><label class="check" title="With target notes: when something was wrong, a small staff above the written notes shows what you played"><input type="checkbox" id="fbOssia" checked> What I played, above the notes</label></div>
           <div class="set adv"><span></span><label class="check"><input type="checkbox" id="fbFollow" checked> Highlight while playing</label></div>
           <div class="set adv"><span>Zen</span><label class="check"><input type="checkbox" id="zenBox"> Just listen: no notes or feedback</label></div>
           </section>
@@ -1931,8 +1932,8 @@ function renderFix(x, sr, plan){
   // (so the note being played can be lit up): see updatePlayhead()
   let playing=null, hl=null, lastAbc='', compareId=null, barge=null;
   // what feedback to give (Settings → Feedback); saved with the other settings
-  const fb={text:true, tune:true, rhythm:true, follow:true, live:true};
-  const FB_IDS={text:'fbText', tune:'fbTune', rhythm:'fbRhythm', follow:'fbFollow', live:'fbLive'};
+  const fb={text:true, tune:true, rhythm:true, follow:true, live:true, ossia:true};
+  const FB_IDS={text:'fbText', tune:'fbTune', rhythm:'fbRhythm', follow:'fbFollow', live:'fbLive', ossia:'fbOssia'};
 
   // ---- recordings kept on the device (IndexedDB), so takes survive closing the page ----
   // Audio is stored as 16-bit samples. Nothing here ever leaves the device.
@@ -3818,12 +3819,15 @@ function renderFix(x, sr, plan){
   // What was played in the coach's passage, as notes on the whole piece's grid (sixteenths), at the
   // take's own tempo and offset (targetRhythm), an octave shift of the alignment taken out; each with a
   // colour: bad = wrong or extra note, tune = right note but off in time, length or tuning, ok = right.
-  function playedOver(t, F){
+  // F: the notes the staff shows, a..b: the part of F that t was played against (a coach passage, or all of
+  // it). noTime: draw every right note at its written place (rhythm not judged).
+  function playedOver(t, F, a=coach.a, b=coach.b, noTime=false){
     if(!t || !t.notes || !t.target || !F.durs) return null;
     const tt=t.target, key=keyOf(tt.notes), r=judge(alignTarget(tt.notes, t.notes, tt.hasOct), key), R=targetRhythm(t, r);
     if(!R) return null;
-    const toFull = tt.coach ? b=>b-tt.onsets[0]+F.onsets[coach.a] : b=>b;
-    const S=F.onsets[coach.a], E=F.onsets[coach.b]+F.durs[coach.b];
+    if(noTime) R.flags=[];
+    const toFull = F!==tt ? x=>x-tt.onsets[0]+F.onsets[a] : x=>x;
+    const S=F.onsets[a], E=F.onsets[b]+F.durs[b];
     const st=new Map(); r.items.forEach((it,i)=>{ if(it.played) st.set(it.played,{it,i}); });
     const flagged=new Set(R.flags.map(f=>f.i)), kinds={}; R.flags.forEach(f=>(kinds[f.i]=kinds[f.i]||new Set()).add(f.kind));
     const ev=[];
@@ -3837,7 +3841,7 @@ function renderFix(x, sr, plan){
         b1 = (k.has('long') || k.has('short')) ? b0+L/R.spb : b0+wl; }
       if(b0<S-0.25 || b0>E-0.1) continue;                  // notes that start in the passage
       const cls = !x || x.it.status==='wrong' ? 'bad' : (flagged.has(x.i) || x.it.status==='tune') ? 'tune' : 'ok';
-      ev.push({midi:n.midi-r.shift, s:Math.max(0,Math.round(b0*4)), e:Math.max(0,Math.round(b1*4)), cls});
+      ev.push({midi:n.midi-r.shift, s:Math.max(0,Math.round(b0*4)), e:Math.max(0,Math.round(b1*4)), cls, i:x?x.i:-1});
     }
     ev.sort((p,q)=>p.s-q.s);
     const out=[]; for(const e of ev){ const pv=out[out.length-1]; if(pv && e.s<pv.e){ if(e.s<=pv.s) continue; pv.e=e.s; } if(e.e>e.s) out.push(e); }
@@ -4168,7 +4172,16 @@ function renderFix(x, sr, plan){
       above: M[i] ? M[i].lab : '',
       below: it.status==='wrong' ? noteName(it.played.midi,key) : ''}));
     const col={ok:css('--ok'), tune:css('--listen'), wrong:css('--rec'), missed:css('--muted')};
-    const els=drawStaff(ev, key, r.items.map(it=>({color:col[it.status], faint:it.status==='missed'})), tBeats(tt));
+    const cols=r.items.map(it=>({color:col[it.status], faint:it.status==='missed'}));
+    // what was played on its own staff above the written one, when there is something to see there: a wrong
+    // or extra note, or (rhythm judged) one off in time; only in tune / missed notes need no second staff
+    const evP=fb.ossia && tt.durs ? playedOver(t, tt, 0, tt.notes.length-1, !fb.rhythm) : null;
+    const showP=evP && evP.length && (evP.some(e=>e.cls==='bad') || (R && R.flags.length));
+    let els;
+    if(showP){ ev.forEach(e=>e.below='');                     // (the played note is on the staff above)
+      const BAR=(typeof tBeats(tt)==='string' ? lyBeats(tBeats(tt)) : tBeats(tt))*4;
+      els=drawOssia(ev, key, cols, tBeats(tt), evP, Math.floor(Math.min(ev[0].s, evP[0].s)/BAR), Math.floor((Math.max(ev[ev.length-1].e, ...evP.map(e=>e.e))-1)/BAR)); }
+    else els=drawStaff(ev, key, cols, tBeats(tt));
     markStaff(els, M); t.lastMarks=M;
     hl={take:t, target:true, times:r.items.map((it,i)=>it.played?[it.played.t0, it.played.t0+(R&&R.lens[i] ? R.lens[i].a : it.played.t1-it.played.t0)]:null),
       lens:R?R.lens:null, bars:[], els, cur:-1};
@@ -4184,7 +4197,7 @@ function renderFix(x, sr, plan){
     }
     const nr=R ? new Set(R.flags.map(f=>f.i)).size : 0;
     if(nr) html+=dot(col.tune, nr+' rhythm');
-    $('notelist').innerHTML='<div class="score">'+html+'</div>'+capHTML(M)+sightBar(t)+FX.html+targetTempo(t, r)+HEAR+(FX.n?FIXBTN:'')+SHARE+(tt.sight||tt.coach?'':SERIES_LINK);
+    $('notelist').innerHTML='<div class="score">'+html+'</div>'+(showP?'<div class="legend">Upper staff: what you played</div>':'')+capHTML(M)+sightBar(t)+FX.html+targetTempo(t, r)+HEAR+(FX.n?FIXBTN:'')+SHARE+(tt.sight||tt.coach?'':SERIES_LINK);
     t.lastSummary=(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+(cnt.tune?', '+cnt.tune+' out of tune':'')+(cnt.wrong?', '+cnt.wrong+' wrong':'')+(cnt.missed?', '+cnt.missed+' missed':'');
     makeShareImage();
   }
