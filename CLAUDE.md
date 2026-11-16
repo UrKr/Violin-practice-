@@ -96,10 +96,17 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   Tuner strings, drone octave and the generator's lowest note follow it.
 - **Target notes syntax:** `G3 A B C4` (octave optional: nearest to the previous note). A length in beats
   can follow, carried over until it changes: `G3:1 A B D:2`, `A:1/2`, rests `r:1`. Without lengths a
-  target is pitch only. Rhythm is judged against the metronome tempo (if the take used it) or the
+  target is pitch only. Optional `M:3/4` (time signature; sets the metronome's beats per bar) and `K:D`
+  (key signature, C G D A E F Bb Eb Ab) come from imported pieces. Rhythm is judged against the metronome tempo (if the take used it) or the
   best-fitting tempo: held vs written length (+/-25%) and early/late (>= 1/4 beat), see `targetRhythm`.
 - **Generator** (notes panel): scales (major, three minors), arpeggios, broken thirds, 1-3 octaves,
   spelled from the key (`makeScale`), written compactly with `compactTarget`.
+- **Piece (MusicXML)** (notes panel): opens `.musicxml`/`.xml`/`.mxl` (zip read by hand, `DecompressionStream`).
+  `parseMusicXML`: per part staff 1, first voice; chords → top note; grace/cue notes dropped; ties joined;
+  times rounded to sixteenths (tuplets approximated); a short first bar is a pickup (placed at the end of a
+  full bar, shown with bar 1); implicit short bars elsewhere keep their length. `pieceTarget` turns bars a..b
+  into `M:.. K:.. notes` (a note tied in from before is a rest). Part chosen by instrument name; bars 1-16 or
+  to the end; 'Next ›' and a bar above the sheet (`pieceBar`) step through. Remembered in `pib-piece`.
 - **Exercise links:** `?t=<notes>&n=<name>` loads and saves an exercise. **Play by ear:** a hidden random
   phrase in the generator's key, revealed after a take.
 - **Practice panel** (chart icon): practice time per day (`pib-time`), streak, and per-note intonation

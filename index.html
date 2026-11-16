@@ -208,6 +208,11 @@ details.settings[open] > summary{box-shadow:var(--shadow)}
 .genrow.drill{grid-template-columns:0.8fr 1.6fr}
 .genrow.rt{grid-template-columns:1.5fr 1fr}
 .genrow.rt button{grid-column:auto}
+.genrow.mx{grid-template-columns:1.6fr 1fr 1fr; margin-bottom:6px}
+.genrow.mx.one{grid-template-columns:1fr 1fr}
+.genrow.mx.one #mxPart{display:none}
+#mxOpen{grid-column:1 / -1}
+.mxtitle{font-weight:600; margin-bottom:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .rtlist{display:flex; flex-direction:column; margin-bottom:8px}
 .rtlist .ri{display:flex; align-items:center; gap:6px; border-bottom:1px solid var(--line); min-height:40px; font-size:.88rem}
 .rtlist .ri .n{color:var(--muted); width:1.4em; font-variant-numeric:tabular-nums}
@@ -222,6 +227,7 @@ details.settings[open] > summary{box-shadow:var(--shadow)}
 .routine .nm b{font-weight:600}
 .routine button{height:34px; min-width:34px; padding:0 10px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink); font-weight:600}
 .routine button.next{background:var(--play); border-color:var(--play); color:#fff}
+.routine button:disabled{opacity:.35}
 /* zen mode: no notes, no feedback - play and listen */
 .zenbar{display:none; align-items:center; justify-content:space-between; gap:10px; color:var(--muted); font-size:.88rem;
   background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:8px 8px 8px 14px; margin-bottom:12px}
@@ -507,6 +513,18 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           </div>
         </div>
         <div class="gen">
+          <div class="genlab">Piece</div>
+          <input type="file" id="mxFile" accept=".musicxml,.xml,.mxl,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml" hidden>
+          <div id="mxPick" hidden>
+            <div class="mxtitle" id="mxTitle"></div>
+            <div class="genrow mx"><select id="mxPart" aria-label="Part"></select><select id="mxFrom" aria-label="From bar"></select><select id="mxLen" aria-label="How many bars"><option value="1">1 bar</option><option value="2">2 bars</option><option value="4" selected>4 bars</option><option value="8">8 bars</option><option value="16">16 bars</option><option value="0">To the end</option></select></div>
+            <div class="genrow rt"><button id="mxUse">Use these bars</button><button id="mxNext">Next ›</button></div>
+            <div class="genhint" id="mxHint"></div>
+          </div>
+          <div class="genrow rt"><button id="mxOpen">Open MusicXML…</button></div>
+          <div class="genhint" id="mxHelp">A score from MuseScore, Sibelius, Finale or Dorico (File › Export › MusicXML), a few bars at a time.</div>
+        </div>
+        <div class="gen">
           <div class="genlab">Play by ear</div>
           <div class="genrow ear">
             <select id="earLen" aria-label="Phrase length"><option value="3">3 notes</option><option value="4" selected>4 notes</option><option value="5">5 notes</option><option value="6">6 notes</option></select>
@@ -591,6 +609,7 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
   <div class="content">
 
   <div class="routine" id="routineBar" hidden></div>
+  <div class="routine" id="pieceBar" hidden><span class="nm"><b></b> <span class="sheet-meta"></span></span><button class="prev" aria-label="Previous bars">‹</button><button class="next">Next ›</button></div>
   <div class="toast" id="toast" hidden role="status"></div>
   <div class="seriesbar" id="seriesBar" hidden></div>
   <div class="zenbar" id="zenBar">Zen mode: just play and listen. <button id="zenOff">Show notes</button></div>
@@ -1049,6 +1068,8 @@ function noteName(m,key){ const {L,a,oct}=spell(m,key); return L+(a>0?'♯':a<0?
 // the index of the event it belongs to. Used to light up the note being played.
 function toAbc(ev,bpm,mode,barsPerLine,key,beats,map,keepLast){
   key=key||KEYS[0]; beats=beats||4;
+  let meter=beats+'/4';
+  if(typeof beats==='string'){ meter=beats; const [n,d]=beats.split('/'); beats=n*4/d; }   // '6/8': 3 quarter beats a bar
   const BAR=beats*4, VALID=[16,12,8,6,4,3,2,1];
   const shift = mode==='guitar'?12:0;
   let clef='treble';
@@ -1107,7 +1128,7 @@ function toAbc(ev,bpm,mode,barsPerLine,key,beats,map,keepLast){
     segment(e.e-e.s,e.midi); }
   if(pos%BAR) segment(BAR-(pos%BAR),null);
   body=body.trim().replace(/\|\s*$/,'')+'|]';
-  return `X:1\n${stretch?'%%stretchlast 1\n':''}M:${beats}/4\nL:1/16\nQ:1/4=${bpm}\nK:${key.name} clef=${clef}\n${body}\n`;
+  return `X:1\n${stretch?'%%stretchlast 1\n':''}M:${meter}\nL:1/16\nQ:1/4=${bpm}\nK:${key.name} clef=${clef}\n${body}\n`;
 }
 
 // ---- Scales and arpeggios, spelled from the key (A harmonic minor has G#, D harmonic minor C#) ----
@@ -1159,13 +1180,18 @@ function compactTarget(seq, durs){
 // "G3 A B C4 D E F# G": a missing octave means the nearest one to the previous note.
 // A length in beats can follow a note or a rest (r): G3:2 = half note, A:0.5 or A:1/2 = eighth,
 // r:1 = quarter rest. A length carries over to the following notes until it changes. Without any
-// lengths the target is notes only (no rhythm).
+// lengths the target is notes only (no rhythm). Optional M:3/4 (time signature) and K:D (key
+// signature, major keys C G D A E F Bb Eb Ab) come from imported pieces.
 function parseTarget(str){
   const toks=str.replace(/[,|]/g,' ').trim().split(/\s+/).filter(Boolean);
   const PC={C:0,D:2,E:4,F:5,G:7,A:9,B:11};
-  const notes=[], durs=[], onsets=[]; let hasOct=false, prev=null, dur=1, pos=0, timed=false;
+  const notes=[], durs=[], onsets=[]; let hasOct=false, prev=null, dur=1, pos=0, timed=false, meter=null;
   const len=x=>{ if(x===undefined) return dur; const v=x.includes('/') ? +x.split('/')[0]/+x.split('/')[1] : +x; return v>0 ? v : NaN; };
   for(const tok of toks){
+    const mt=tok.match(/^M:(\d+)(?:\/(\d+))?$/);
+    if(mt){ const n=+mt[1], d=+(mt[2]||4), b=n*4/d; if(!(b>0) || b*4%1 || b>16) return {error:tok}; meter=n+'/'+d; continue; }
+    const ks=tok.match(/^K:([A-G]b?)$/);
+    if(ks){ if(!KEYS.some(k=>k.name===ks[1])) return {error:tok}; notes.key=ks[1]; continue; }
     const rest=tok.match(/^[rRzZ](?::([\d.]+(?:\/\d+)?))?$/);
     if(rest){ const d=len(rest[1]); if(!(d>0)) return {error:tok}; if(rest[1]!==undefined) timed=true; dur=d; pos+=d; continue; }
     const m=tok.match(/^([A-Ga-g])(#{1,2}|♯|x|bb|b|♭)?(-?\d)?(?::([\d.]+(?:\/\d+)?))?$/);
@@ -1180,7 +1206,138 @@ function parseTarget(str){
     else { let best=null; for(let o=0;o<9;o++){ const c=(o+1)*12+base+acc; if(best===null || Math.abs(c-prev)<Math.abs(best-prev) || (Math.abs(c-prev)===Math.abs(best-prev) && c>best)) best=c; } midi=best; }
     notes.push(midi); prev=midi;
   }
-  return {notes, hasOct, durs: timed?durs:null, onsets: timed?onsets:null};
+  return {notes, hasOct, durs: timed?durs:null, onsets: timed?onsets:null, meter: timed?meter:null};
+}
+
+// ---- MusicXML import ----
+// A score (partwise MusicXML text) as parts of notes on one timeline in quarter beats:
+// {title, tempo, parts:[{name, bars:[{start, len, meter, fifths, pickup}], notes:[{on, d, midi, name}], flags}]}.
+// Per part: staff 1, its first voice; chords keep the top note; grace and cue notes are left out;
+// ties are joined; times are rounded to sixteenths (tuplets approximated); a short first bar is a
+// pickup, placed at the end of a full bar.
+function parseMusicXML(text){
+  const doc=new DOMParser().parseFromString(text,'application/xml');
+  const root=doc.documentElement;
+  if(!root || doc.getElementsByTagName('parsererror').length) throw new Error('This file isn’t readable XML.');
+  if(root.nodeName==='score-timewise') throw new Error('Timewise MusicXML isn’t supported. Export it as partwise MusicXML.');
+  if(root.nodeName!=='score-partwise') throw new Error('This isn’t a MusicXML score.');
+  const kids=(el,n)=>el?[...el.children].filter(c=>c.nodeName===n):[];
+  const kid=(el,n)=>el?[...el.children].find(c=>c.nodeName===n):null;
+  const txt=(el,n)=>{ const k=kid(el,n); return k?k.textContent.trim():''; };
+  const title=txt(kid(root,'work'),'work-title')||txt(root,'movement-title')||'';
+  const names={};
+  for(const sp of kids(kid(root,'part-list'),'score-part')) names[sp.getAttribute('id')]=txt(sp,'part-name')||txt(sp,'part-abbreviation');
+  const STEP={C:0,D:2,E:4,F:5,G:7,A:9,B:11}, UNIT={whole:4,half:2,quarter:1,eighth:.5,'16th':.25};
+  let tempo=0;
+  const parts=kids(root,'part').map((p,pi)=>{
+    let div=1, meter='4/4', beats=4, fifths=0, start=0, voice=null, last=null;
+    const bars=[], notes=[], flags={chords:0, tuplets:0, grace:0, voices:0};
+    kids(p,'measure').forEach((m,mi)=>{
+      let pos=0, end=0; const items=[];
+      for(const el of m.children){
+        const n=el.nodeName;
+        if(n==='attributes'){
+          const dv=+txt(el,'divisions'); if(dv>0) div=dv;
+          const t=kid(el,'time');
+          if(t && txt(t,'beats')){ const b=txt(t,'beats').split('+').reduce((a,x)=>a+(+x||0),0), bt=+txt(t,'beat-type')||4;
+            if(b>0 && (b*16/bt)%1===0){ meter=b+'/'+bt; beats=b*4/bt; } }
+          const k=kid(el,'key'); if(k && txt(k,'fifths')!=='') fifths=+txt(k,'fifths')||0;
+        } else if(n==='direction' || n==='sound'){
+          if(tempo) continue;
+          const snd = n==='sound' ? el : el.getElementsByTagName('sound')[0];
+          if(snd && +snd.getAttribute('tempo')>0) tempo=Math.round(+snd.getAttribute('tempo'));
+          else { const mt=el.getElementsByTagName('metronome')[0];
+            if(mt){ const u=UNIT[txt(mt,'beat-unit')], pm=+txt(mt,'per-minute'); if(u && pm>0) tempo=Math.round(pm*u*(kid(mt,'beat-unit-dot')?1.5:1)); } }
+        } else if(n==='backup') pos-=(+txt(el,'duration')||0)/div;
+        else if(n==='forward'){ pos+=(+txt(el,'duration')||0)/div; end=Math.max(end,pos); }
+        else if(n==='note'){
+          if(kid(el,'grace')){ flags.grace++; continue; }
+          if(kid(el,'cue')) continue;
+          const chord=!!kid(el,'chord'), d=(+txt(el,'duration')||0)/div;
+          const v=txt(el,'voice')||'1', st=txt(el,'staff')||'1';
+          if(voice===null && st==='1' && !chord) voice=v;
+          const mine = v===voice && st==='1';
+          if(!mine && !chord && !kid(el,'rest') && st==='1') flags.voices++;
+          const pt=kid(el,'pitch');
+          let midi=null, name=null;
+          if(pt){ const step=txt(pt,'step'), alter=Math.round(+txt(pt,'alter')||0), oct=+txt(pt,'octave');
+            if(step in STEP && txt(pt,'octave')!==''){ midi=(oct+1)*12+STEP[step]+alter; name=step+(alter>0?'#'.repeat(alter):'b'.repeat(-alter))+oct; } }
+          const ties=kids(el,'tie').map(t=>t.getAttribute('type'));
+          const it={at:pos, d, midi, name, tieStart:ties.includes('start'), tieStop:ties.includes('stop')};
+          if(chord){
+            const prev=items[items.length-1];
+            if(mine && prev && prev.chordOk && midi!==null){ flags.chords++; if(prev.midi===null || midi>prev.midi) Object.assign(prev,{midi,name,tieStart:it.tieStart,tieStop:it.tieStop}); }
+            continue;
+          }
+          if(mine){ it.chordOk=true; items.push(it); if(kid(el,'time-modification')) flags.tuplets++; }
+          else if(items.length) items[items.length-1].chordOk=false;
+          pos+=d; end=Math.max(end,pos);
+        }
+      }
+      // bar length: the time signature's; a short first bar is a pickup; a short bar elsewhere
+      // that the file marks implicit (a bar split at a repeat) keeps its own length
+      let len=beats, shift=0;
+      if(end>0 && end<beats-1e-6){
+        if(mi===0) shift=beats-end;
+        else if(m.getAttribute('implicit')==='yes') len=Math.round(end*4)/4;
+      }
+      bars.push({start, len, meter, fifths, pickup:shift>0});
+      let prevEnd=0;
+      for(const it of items){
+        let s=Math.round((it.at+shift)*4)/4, e=Math.round((it.at+shift+it.d)*4)/4;
+        s=Math.max(s,prevEnd); if(e<=s) e=s+0.25; if(s>=len) continue; e=Math.min(e,Math.max(len,s+0.25));
+        prevEnd=e;
+        if(it.midi===null){ last=null; continue; }
+        const on=start+s, dd=e-s;
+        if(it.tieStop && last && last.open && last.midi===it.midi && Math.abs(last.on+last.d-on)<1e-6){ last.d+=dd; last.open=it.tieStart; }
+        else { last={on, d:dd, midi:it.midi, name:it.name, open:it.tieStart}; notes.push(last); }
+      }
+      start+=len;
+    });
+    notes.forEach(n=>delete n.open);
+    return {name:names[p.getAttribute('id')]||('Part '+(pi+1)), bars, notes, flags};
+  }).filter(p=>p.notes.length);
+  if(!parts.length) throw new Error('No notes found in this file.');
+  return {title, tempo, parts};
+}
+// .mxl is a zip: the score is the file named in META-INF/container.xml (or the first .xml in it)
+async function unzipMXL(buf){
+  const u=new Uint8Array(buf), dv=new DataView(buf), dec=new TextDecoder();
+  let e=u.length-22; while(e>=0 && dv.getUint32(e,true)!==0x06054b50) e--;
+  if(e<0) throw new Error('This .mxl file is damaged.');
+  const files={}, cnt=dv.getUint16(e+10,true); let p=dv.getUint32(e+16,true);
+  for(let i=0;i<cnt && dv.getUint32(p,true)===0x02014b50;i++){
+    const nl=dv.getUint16(p+28,true), name=dec.decode(u.subarray(p+46,p+46+nl));
+    files[name]={method:dv.getUint16(p+10,true), size:dv.getUint32(p+20,true), off:dv.getUint32(p+42,true)};
+    p+=46+nl+dv.getUint16(p+30,true)+dv.getUint16(p+32,true);
+  }
+  const read=async name=>{
+    const f=files[name]; if(!f) return null;
+    const at=f.off+30+dv.getUint16(f.off+26,true)+dv.getUint16(f.off+28,true), data=u.subarray(at,at+f.size);
+    if(f.method===0) return dec.decode(data);
+    if(f.method!==8 || typeof DecompressionStream==='undefined') throw new Error('This browser can’t open .mxl files. Export as uncompressed MusicXML (.musicxml).');
+    return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+  };
+  const c=await read('META-INF/container.xml');
+  let rootName = c && (c.match(/full-path\s*=\s*"([^"]+)"/)||[])[1];
+  if(!rootName || !files[rootName]) rootName=Object.keys(files).find(n=>!n.startsWith('META-INF') && /\.(xml|musicxml)$/i.test(n));
+  if(!rootName) throw new Error('No score found in this .mxl file.');
+  return read(rootName);
+}
+const FIFTHS_KEY={'-4':'Ab','-3':'Eb','-2':'Bb','-1':'F',0:'C',1:'G',2:'D',3:'A',4:'E'};
+// bars a..b (indexes) of a part as target text: rests fill the gaps, a note tied in from before
+// the first bar is a rest, the last note ends at the last barline
+function pieceTarget(part, a, b){
+  const S=part.bars[a].start, E=part.bars[b].start+part.bars[b].len, seq=[], durs=[];
+  let pos=S;
+  for(const n of part.notes){
+    if(n.on<S-1e-6 || n.on>=E-1e-6) continue;
+    if(n.on>pos+1e-6){ seq.push({rest:true}); durs.push(n.on-pos); }
+    const d=Math.min(n.d, E-n.on); seq.push({midi:n.midi, name:n.name}); durs.push(d); pos=n.on+d;
+  }
+  if(!seq.some(x=>!x.rest)) return '';
+  const bar=part.bars[a], k=FIFTHS_KEY[bar.fifths];
+  return 'M:'+bar.meter+(k?' K:'+k:'')+' '+compactTarget(seq, durs);
 }
 
 // Line up what was played with the target, allowing for missed and extra notes.
@@ -1370,7 +1527,7 @@ function stretch(x, rate){
     else {
       const t=parseTarget(str);
       if(t.error){ if(!quiet) $('targetErr').textContent='“'+t.error+'” isn’t a note. Use letters A–G, # or b, an optional octave number, and :beats for a length (G3:2, r:1 for a rest).'; return false; }
-      if(!t.notes.length) target=null; else target={str, notes:t.notes, hasOct:t.hasOct, durs:t.durs, onsets:t.onsets};
+      if(!t.notes.length) target=null; else target={str, notes:t.notes, hasOct:t.hasOct, durs:t.durs, onsets:t.onsets, meter:t.meter};
     }
     $('targetErr').textContent='';
     $('targetBtn').classList.toggle('on', !!target);
@@ -1539,6 +1696,87 @@ function stretch(x, rate){
     toast('Rhythm drill: only timing counts. Metronome at '+metro.bpm+' bpm.');
   };
 
+  // ---- a piece from a MusicXML file, a few bars at a time (pib-piece: the piece and where you are) ----
+  let piece=null;
+  try{ piece=JSON.parse(localStorage.getItem('pib-piece')||'null'); }catch(e){}
+  const storePiece=()=>{ try{ localStorage.setItem('pib-piece', JSON.stringify(piece)); }catch(e){ /* too big to keep: fine for this visit */ } };
+  function renderPiece(){
+    $('mxPick').hidden=!piece; $('mxHelp').hidden=!!piece;
+    $('mxOpen').textContent = piece ? 'Open another…' : 'Open MusicXML…';
+    if(!piece) return;
+    $('mxTitle').textContent=piece.title||piece.file||'Piece';
+    const part=piece.parts[piece.part]||piece.parts[0];
+    $('mxPart').innerHTML=''; piece.parts.forEach((p,i)=>$('mxPart').add(new Option(p.name, i, false, i===piece.part)));
+    $('mxPart').parentNode.classList.toggle('one', piece.parts.length<2);
+    const pick=part.bars[0].pickup && part.bars.length>1 ? 1 : 0;
+    $('mxFrom').innerHTML='';
+    part.bars.forEach((b,i)=>{ if(i===0 && pick && part.bars.length>1) return; $('mxFrom').add(new Option('Bar '+(i+(pick?0:1)), i, false, i===piece.from)); });
+    if(![...$('mxFrom').options].some(o=>+o.value===piece.from)) $('mxFrom').selectedIndex=0;
+    $('mxLen').value=piece.len;
+    const f=part.flags, notes=[];
+    if(piece.tempo) notes.push('Score tempo '+piece.tempo+' bpm.');
+    if(f.chords) notes.push('Chords: top note.');
+    if(f.voices) notes.push('First voice only.');
+    if(f.tuplets) notes.push('Triplets rounded to sixteenths.');
+    if(f.grace) notes.push('Grace notes left out.');
+    $('mxHint').textContent=notes.join(' ');
+  }
+  // bars as indexes: bar 1 includes a pickup before it
+  function pieceRange(){
+    const part=piece.parts[piece.part], n=part.bars.length;
+    let a=Math.min(piece.from, n-1), b = piece.len ? Math.min(n-1, a+piece.len-1) : n-1;
+    if(a===1 && $('mxFrom').options[0] && +$('mxFrom').options[0].value===1) a=0;   // with the pickup
+    return [a,b];
+  }
+  function usePiece(){
+    const part=piece.parts[piece.part], [a,b]=pieceRange();
+    const str=pieceTarget(part, a, b);
+    if(!str){ toast('No notes in these bars.'); return; }
+    const first=+$('mxFrom').value, label=$('mxFrom').selectedOptions[0].text.replace('Bar ',''), lastN=b-first+(+label);
+    $('targetIn').value=str; piece.str=str; piece.label=label+(lastN>+label?'–'+lastN:''); storePiece();
+    $('targetName').value=((piece.title||piece.file||'Piece')+(piece.parts.length>1?' ('+part.name+')':'')+', bars '+label+(lastN>+label?'–'+lastN:'')).slice(0,80);
+    useTarget();
+  }
+  $('mxOpen').onclick=e=>{ e.stopPropagation(); $('mxFile').value=''; $('mxFile').click(); };
+  $('mxFile').onchange=async()=>{
+    const file=$('mxFile').files[0]; if(!file) return;
+    try{
+      const buf=await file.arrayBuffer(), u=new Uint8Array(buf);
+      const text = u[0]===0x50 && u[1]===0x4b ? await unzipMXL(buf) : new TextDecoder().decode(u);
+      const sc=parseMusicXML(text);
+      // the part to play: one named for the instrument, else the first
+      const want=new RegExp($('instr').value,'i'), pi=Math.max(0, sc.parts.findIndex(p=>want.test(p.name)));
+      piece={...sc, file:file.name.replace(/\.(musicxml|xml|mxl)$/i,''), part:pi, from:0, len:4};
+      storePiece(); renderPiece();
+      piece.from=+$('mxFrom').value; storePiece();
+      usePiece();
+      if(pi===0 && sc.parts.length>1 && !want.test(sc.parts[0].name)) openTarget(true);   // which part? choose it here
+    } catch(err){ toast(err && err.message ? err.message : 'Couldn’t read that file.'); }
+  };
+  $('mxPart').onchange=()=>{ piece.part=+$('mxPart').value; piece.from=0; renderPiece(); piece.from=+$('mxFrom').value; storePiece(); };
+  $('mxFrom').onchange=()=>{ piece.from=+$('mxFrom').value; storePiece(); };
+  $('mxLen').onchange=()=>{ piece.len=+$('mxLen').value; storePiece(); };
+  $('mxUse').onclick=e=>{ e.stopPropagation(); usePiece(); };
+  function pieceStep(dir){
+    const part=piece.parts[piece.part], [a,b]=pieceRange(), first=+$('mxFrom').options[0].value;
+    if(dir>0){ if(b>=part.bars.length-1){ toast('That was the end of the piece.'); return; } piece.from=b+1; }
+    else { if(a<=first || piece.from<=first){ return; } piece.from=Math.max(first, piece.from-(piece.len||1)); }
+    storePiece(); renderPiece(); usePiece();
+  }
+  $('mxNext').onclick=e=>{ e.stopPropagation(); pieceStep(1); };
+  // above the sheet while practising the piece: where you are, previous / next bars
+  function renderPieceBar(){
+    const bar=$('pieceBar'), on=!!(piece && target && piece.str===target.str && !rtItem());
+    bar.hidden=!on; if(!on) return;
+    const part=piece.parts[piece.part], [a,b]=pieceRange();
+    bar.querySelector('b').textContent=piece.title||piece.file||'Piece';
+    bar.querySelector('.sheet-meta').textContent='· bars '+piece.label;
+    bar.querySelector('.prev').disabled=!piece.len || piece.from<=+$('mxFrom').options[0].value;
+    bar.querySelector('.next').disabled=!piece.len || b>=part.bars.length-1;
+  }
+  $('pieceBar').addEventListener('click',e=>{ const b=e.target.closest('button'); if(b) pieceStep(b.classList.contains('next')?1:-1); });
+  renderPiece();
+
   // ---- sight-reading: a phrase you haven't seen, by level; the level adapts (pib-sight) ----
   const SIGHT={
     1:{keys:[0,7], bars:1, span:7, steps:[1], rhythm:[[1,1,1,1]]},
@@ -1624,7 +1862,13 @@ function stretch(x, rate){
     if(open){ $('settings').open=false; if(tunerOpen) openTuner(false); if(statsOpen) openStats(false); $('targetIn').value=target&&!target.ear&&!target.sight?target.str:''; renderSaved(); renderRoutineList(); }
   }
   $('targetBtn').onclick=e=>{ e.stopPropagation(); openTarget($('targetPanel').hidden); };
-  const useTarget=()=>{ if(setTarget($('targetIn').value)){ streak=0; setTimeout(refreshDrone,0); shownTake=null; sheetView='result'; openTarget(false); save(); renderTakes(); renderSheet(); } };
+  // a target with a time signature sets the metronome's beats per bar (quarter beats, 2-6)
+  function followMeter(){
+    if(!target || !target.meter) return;
+    const [n,d]=target.meter.split('/'), b=n*4/d;
+    if(b>=2 && b<=6 && b%1===0 && b!==metro.bpb){ metro.bpb=b; $('bpb').value=b; renderMetro(); }
+  }
+  const useTarget=()=>{ if(setTarget($('targetIn').value)){ followMeter(); streak=0; setTimeout(refreshDrone,0); shownTake=null; sheetView='result'; openTarget(false); save(); renderTakes(); renderSheet(); } };
   $('targetUse').onclick=useTarget;
   $('targetSave').onclick=()=>{
     const str=$('targetIn').value.trim(); if(!str) return;
@@ -2575,6 +2819,7 @@ function stretch(x, rate){
   }
 
   function renderSheet(){
+    renderPieceBar();
     const paper=$('paper'), meta=$('sheetMeta'), list=$('notelist');
     const t=shownTake;
     $('pitchWrap').hidden=true; paper.hidden=false; $('sheetKey').textContent=''; lastPng=null;
@@ -2669,7 +2914,7 @@ function stretch(x, rate){
   // target notes as sheet events (sixteenths): their rhythm if they have one, else quarter notes
   const tSpan=(tt,i)=> tt.durs ? [Math.round(tt.onsets[i]*4), Math.round((tt.onsets[i]+tt.durs[i])*4)] : [i*4, i*4+4];
   function targetEvents(tt, shift=0){ return tt.notes.map((m,i)=>{ const [s,e]=tSpan(tt,i); return {midi:m+shift, s, e}; }); }
-  const tBeats=tt=> tt && tt.durs ? metro.bpb : 4;
+  const tBeats=tt=> tt && tt.meter ? tt.meter : tt && tt.durs ? metro.bpb : 4;
 
   // Rhythm of a take against a target with lengths. Tempo: the metronome's if the take was played
   // with it, else the one that best fits the take. Each played note: held vs written length, and
@@ -2697,7 +2942,8 @@ function stretch(x, rate){
     return {lens, flags, spb};
   }
   // (a drill on one note has no key: no key signature rather than A major for a row of A's)
-  function keyOf(midis){ return midis.length && midis.every(m=>m%12===midis[0]%12) ? KEYS[0] : guessKey(midis.map((m,i)=>({midi:m,t0:i,t1:i+1}))); }
+  function keyOf(midis){ if(midis.key){ const k=KEYS.find(k=>k.name===midis.key); if(k) return k; }
+    return midis.length && midis.every(m=>m%12===midis[0]%12) ? KEYS[0] : guessKey(midis.map((m,i)=>({midi:m,t0:i,t1:i+1}))); }
 
   async function hearTarget(notes, durs, onsets){
     ensureAC(); await ac.resume(); anchorClock();
