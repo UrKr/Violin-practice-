@@ -490,6 +490,8 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           </section>
           <section class="sgrp" id="grpListening" data-dock>
           <div class="sgroup">Listening</div>
+          <div class="set" id="micRow" hidden><label for="micSel">Microphone</label><select id="micSel"><option value="">Default</option></select></div>
+          <div class="set" id="outRow" hidden title="Where playback, the click, Hear it and the drone are heard"><label for="outSel">Speaker</label><select id="outSel"><option value="">Default</option></select></div>
           <div class="set"><span>Playback</span><label class="check"><input type="checkbox" id="bargeIn" checked> Stop when I play <span id="bargeNote"></span></label></div>
           <div class="set"><label for="sil">Stop after</label><input type="range" id="sil" min="0.5" max="5" step="0.1" value="1.5"><output id="silVal"></output></div>
           <div class="set"><label for="rep">Repeat</label><input type="range" id="rep" min="0" max="4" step="1" value="1"><output id="repVal"></output></div>
@@ -1963,7 +1965,7 @@ function renderFix(x, sr, plan){
   let target=null, sheetView='result', halfSpeed=false;
   // (coach: see 'Coach' below; declared here because setTarget ends its passage practice)
   // phase: 'whole' (play the exercise) | 'clean' (it was) | 'yours' / 'right' (the demo playing) | 'turn' (play the passage)
-  let syncMs=0, calib=null;   // metronome sync (see 'Sync' below; declared here because the settings load it early)
+  let syncMs=0, calib=null, micId='', outId='';   // (micId / outId: the chosen input and output devices, '' = default)   // metronome sync (see 'Sync' below; declared here because the settings load it early)
   const coach={on:false, full:null, a:0, b:0, tries:0, good:0, why:'', phase:'whole'};
   let coachSetting=false;
   let drillPrev=null;   // the Focus and metronome before a rhythm drill, put back after it
@@ -2859,7 +2861,7 @@ function renderFix(x, sr, plan){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:(t=>t&&!t.ear&&!t.sight&&!t.drill?t.str:'')(coach.full||target),coach:coach.on,A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked,sync:syncMs,gen:Object.fromEntries(['genKey','genType','genOct','earLen','drillType','backupTakes'].map(id=>[id, $(id).type==='checkbox' ? $(id).checked : $(id).value]))})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:(t=>t&&!t.ear&&!t.sight&&!t.drill?t.str:'')(coach.full||target),coach:coach.on,A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked,sync:syncMs,mic:micId,out:outId,gen:Object.fromEntries(['genKey','genType','genOct','earLen','drillType','backupTakes'].map(id=>[id, $(id).type==='checkbox' ? $(id).checked : $(id).value]))})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
     if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); coach.on=!!s.coach; $('coachBtn').setAttribute('aria-pressed',coach.on); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
@@ -2868,6 +2870,7 @@ function renderFix(x, sr, plan){
       if(s.pedal) $('pedal').value=s.pedal; if(s.inton) $('inton').value=s.inton; if(s.instr) $('instr').value=s.instr; if(s.beat) $('beatMode').value=s.beat; if(typeof s.autoSens==='boolean') $('autoSens').checked=s.autoSens;
       if(s.detail) $('detail').value=s.detail; if(s.zen) document.body.classList.add('zen');
       if(typeof s.sync==='number') syncMs=s.sync;
+      if(typeof s.mic==='string') micId=s.mic; if(typeof s.out==='string') outId=s.out;
       if(typeof s.barge==='boolean') $('bargeIn').checked=s.barge;
       if(s.gen){ for(const [id,v] of Object.entries(s.gen)) if($(id) && v!==undefined){ if($(id).type==='checkbox') $(id).checked=!!v; else $(id).value=v; } } }
     // iPhone / iPad (also iPads that say they are Macs): the mic open during playback sends the sound to
@@ -2947,8 +2950,11 @@ function renderFix(x, sr, plan){
     if(micPending) return micPending;
     micPending=(async()=>{
       setSession('play-and-record');
-      const st = await navigator.mediaDevices.getUserMedia({audio:{
-        echoCancellation:false, noiseSuppression:false, autoGainControl:false }});
+      const want={echoCancellation:false, noiseSuppression:false, autoGainControl:false};
+      let st;
+      try{ st = await navigator.mediaDevices.getUserMedia({audio: micId ? {...want, deviceId:{exact:micId}} : want}); }
+      catch(e){ if(!micId || !/NotFound|Overconstrained/.test(e && e.name || '')) throw e; st = await navigator.mediaDevices.getUserMedia({audio:want}); }   // (unplugged: the default)
+      setTimeout(refreshDevices,0);                          // (device names are known once the mic is allowed)
       if(stream){ st.getTracks().forEach(t=>t.stop()); return; }
       stream=st;
       if(ac.state==='suspended') await ac.resume();
@@ -2971,6 +2977,7 @@ function renderFix(x, sr, plan){
   function ensureAC(){
     if(ac) return;
     ac = new (window.AudioContext||window.webkitAudioContext)();
+    if(outId && ac.setSinkId) ac.setSinkId(outId).catch(()=>{});
     proc = ac.createScriptProcessor(2048,1,1);
     const mute = ac.createGain(); mute.gain.value=0;
     proc.connect(mute); mute.connect(ac.destination);
@@ -2983,6 +2990,34 @@ function renderFix(x, sr, plan){
     try{ if(!wakeLock || wakeLock.released) wakeLock = await navigator.wakeLock?.request('screen'); }catch(e){}
     if(!stream && state!=='playing') micOn().catch(()=>{ showErr('The microphone was lost. Tap Start to listen again.'); stop(); });
   });
+  // ---- input and output devices (Settings > Listening): shown when there is a choice; the speaker only where
+  // the browser can route Web Audio (AudioContext.setSinkId: Chrome, Edge; not Safari, where the system decides) ----
+  async function refreshDevices(){
+    if(!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    let list=[]; try{ list=await navigator.mediaDevices.enumerateDevices(); }catch(e){ return; }
+    const fill=(sel,kind,cur,word)=>{
+      const ds=list.filter(d=>d.kind===kind && d.deviceId && d.deviceId!=='default' && d.deviceId!=='communications');
+      sel.innerHTML='<option value="">Default</option>'+ds.map((d,i)=>'<option value="'+d.deviceId.replace(/"/g,'&quot;')+'"></option>').join('');
+      ds.forEach((d,i)=>{ sel.options[i+1].textContent=d.label || word+' '+(i+1); });
+      sel.value = ds.some(d=>d.deviceId===cur) ? cur : '';
+      return ds.length;
+    };
+    $('micRow').hidden = fill($('micSel'),'audioinput',micId,'Microphone')<2;
+    const canOut=!!(window.AudioContext && AudioContext.prototype.setSinkId);
+    $('outRow').hidden = !canOut || fill($('outSel'),'audiooutput',outId,'Output')<2;
+  }
+  if(navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', refreshDevices);
+  $('micSel').addEventListener('change',async()=>{
+    micId=$('micSel').value; save();
+    if(stream && state!=='playing'){ micOff(); try{ await micOn(); }catch(e){ showErr('That microphone couldn’t be opened.'); } }
+    toast('Microphone: '+$('micSel').selectedOptions[0].textContent);
+  });
+  $('outSel').addEventListener('change',async()=>{
+    outId=$('outSel').value; save();
+    try{ if(ac && ac.setSinkId) await ac.setSinkId(outId); toast('Speaker: '+$('outSel').selectedOptions[0].textContent); }
+    catch(e){ toast('That output couldn’t be used'); }
+  });
+  refreshDevices();
   let starting=false;
   async function start(){
     if(starting || active) return;

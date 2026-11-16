@@ -170,6 +170,10 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   timed like a take) against their beats, median kept unless the spread is over 40 ms; − / + adjust by 10.
   A take's grid starts syncMs later (`take.metro.t0`), so its bars and the downbeat playback line up with
   what was played. With the click, the beat ring is drawn `ac.outputLatency` late, when the click is heard.
+- **Devices** (Settings > Listening): Microphone (`micId`, getUserMedia deviceId exact; the default if it's
+  gone) and Speaker (`outId`, `AudioContext.setSinkId`: Chrome / Edge; hidden where unsupported, e.g. Safari,
+  where the system decides). Rows show only with 2+ devices (`refreshDevices`, also on devicechange; names
+  appear once the mic is allowed). Changing the mic while listening reopens it at once. Saved in settings.
 - **Automatic sensitivity** (Settings > Listening, on by default): while listening, the quiet 20% of the
   last ~6 s is the room's noise; the trigger goes 12 dB above it. The first ~0.5 s only measures.
 - **Interval intonation:** `intervalsOf` measures steps between connected notes against equal temperament
