@@ -165,6 +165,16 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   written place (target tempo from `targetRhythm`, or the sheet's lengths without a target), crossfaded.
   Missed notes and wrong notes more than a fourth off are a synthesized tone at the take's loudness; extra
   notes are left out. 'Yours, fixed' (shown when there is anything to fix) plays the whole take corrected.
+- **Coach** (button beside Drone, `coach`, saved in settings): instead of playing each take back, waits for its
+  notes (`coachAfter`). With target notes: clean = 'Clean! Once more'; else the most serious mistake (wrong /
+  missed, then rhythm, then tuning, as the Focus switches allow; the Summary's recurring one if 3+ takes)
+  becomes a passage (`coachPassage`: a note before, two for rhythm, one after, plus a mistake right after;
+  3-6 notes) set as a temporary target (`target.coach`, written by `passageStr` keeping its place in the bar;
+  `coach.full` holds the exercise, which is what gets saved). It plays yours then right (`hearFixed`) and
+  listens to the passage; right twice in a row = back to the whole exercise; each miss replays the demo;
+  try 3 slows the metronome 10%; after 5 tries back to the whole exercise. Passage takes don't count for
+  progress, ladder or recurring problems. The coach bar shows the problem, a play button and Skip; setting
+  any other target ends the passage. Without target notes it plays 'Yours, fixed' when something is off.
 - **Readable mistakes** (`fixList`): one numbered row per note in plain words ('you played C4', 'held 37%
   too long', '27 cents flat'), the same number above the note on the staff; wrong/missed, then rhythm,
   then tuning; general points (intervals, extra notes, 'Most often') and a ✓ line for what went well.

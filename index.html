@@ -2494,13 +2494,13 @@ function renderFix(x, sr, plan){
     return out.sort((x,y)=>x.sev-y.sev || x.i-y.i);
   }
   // the passage around the first, most serious mistake (the one that keeps coming back, if there is
-  // one): a note before (two for a rhythm problem), one after, and any mistakes close by; 6 notes at most
+  // one): a note before (two for a rhythm problem), one after, and a mistake right after that; 6 notes at most
   function coachPassage(t, iss){
     const n=t.target.notes.length, tt=t.target;
     let x=iss[0];
     if(sameTargetTakes(tt).length>=3){ const S=summarize(tt), top=S.issues.find(y=>y.i>=0); const m=top && iss.find(y=>y.i===top.i); if(m) x=m; }
     let a=Math.max(0, x.i-(x.rhythm?2:1)), b=Math.min(n-1, x.i+1);
-    for(const y of iss.map(y=>y.i).sort((p,q)=>p-q)) if(y>b && y<=b+2 && y-a<6) b=Math.min(n-1,y+1);
+    for(const y of iss.map(y=>y.i).sort((p,q)=>p-q)) if(y>b && y<=b+1 && y-a<6) b=Math.min(n-1,y+1);
     while(b-a+1<3 && (a>0 || b<n-1)){ if(b<n-1) b++; else a--; }
     b=Math.min(b, a+5);
     return {a, b, why:x.txt};
@@ -3402,7 +3402,7 @@ function renderFix(x, sr, plan){
     const key=keyOf(target.notes);
     hl={take:null, target:true, els:drawStaff(targetEvents(target), key, null, tBeats(target)), cur:-1};
     $('notelist').innerHTML = target.sight ? '<div class="sightbar"><span class="tx"><b>Read it, then play</b><small>Sight-reading level '+target.sight.level+' · no listening first</small></span></div>'
-      : '<div class="hearrow">'+HEAR+MXBTN+'</div>'+progressHTML(target.str)+SERIES_LINK;
+      : '<div class="hearrow">'+HEAR+MXBTN+'</div>'+(target.coach?'':progressHTML(target.str)+SERIES_LINK);
   }
 
   function renderResult(t){
@@ -3431,7 +3431,7 @@ function renderFix(x, sr, plan){
       if(cnt.missed) html+=dot(col.missed, cnt.missed+' missed');
       if(r.extra) html+=dot(css('--ink'), r.extra+' extra');
     }
-    $('notelist').innerHTML='<div class="score">'+html+'</div>'+sightBar(t)+FX.html+targetTempo(t, r)+HEAR+(FX.n?FIXBTN:'')+SHARE+(tt.sight?'':SERIES_LINK);
+    $('notelist').innerHTML='<div class="score">'+html+'</div>'+sightBar(t)+FX.html+targetTempo(t, r)+HEAR+(FX.n?FIXBTN:'')+SHARE+(tt.sight||tt.coach?'':SERIES_LINK);
     t.lastSummary=(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+(cnt.tune?', '+cnt.tune+' out of tune':'')+(cnt.wrong?', '+cnt.wrong+' wrong':'')+(cnt.missed?', '+cnt.missed+' missed':'');
     makeShareImage();
   }
