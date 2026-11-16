@@ -274,6 +274,14 @@ body:not(.allset) .set.adv{display:none !important}
 .guide .card .step{color:var(--muted); font-size:.8rem}
 .guide .card button{height:36px; padding:0 14px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink); font-weight:600; margin-left:6px}
 .guide .card button.go{background:var(--play); border-color:var(--play); color:#fff}
+.tempo{margin:8px 0 4px; padding:8px 10px 6px; border-radius:12px; background:var(--bg)}
+.tempo .tl{font-size:.88rem; margin-bottom:4px; color:var(--ink)}
+.tempo .tl b{font-weight:650; margin-right:4px}
+.tempo svg{display:block; width:100%; height:64px}
+.tempo .ref{stroke:var(--line2); stroke-dasharray:4 4; stroke-width:1}
+.tempo .fit{stroke:var(--muted); stroke-width:1; opacity:.5}
+.tempo .ln{fill:none; stroke:var(--play); stroke-width:1.5; opacity:.6}
+.tempo .tax{font-size:.72rem; color:var(--muted); margin-top:2px}
 .genhint{color:var(--muted); font-size:.78rem; margin-top:6px}
 .ear-wait{text-align:center; padding:22px 8px 10px; color:var(--muted)}
 .ear-wait b{display:block; color:var(--ink); font-size:1.05rem; font-weight:600; margin-bottom:4px}
@@ -2274,6 +2282,49 @@ function stretch(x, rate){
     return {html, nums};
   }
   // what to fix in a take without target notes (tuning per note, held lengths)
+  // ---- tempo stability: the tempo note by note (written beats / actual seconds between note starts),
+  // against the metronome or the take's own tempo; speeding up / slowing down from a straight-line fit,
+  // steadiness from the scatter around it ----
+  function tempoHTML(pairs, metroBpm){
+    let pts=pairs.filter(x=>x.beats>0 && x.dt>0.08).map(x=>({t:x.t, bpm:60*x.beats/x.dt}));
+    if(pts.length<3) return '';
+    const sorted=pts.map(p=>p.bpm).sort((a,b)=>a-b), med=sorted[sorted.length>>1];
+    pts=pts.filter(p=>p.bpm>med/1.8 && p.bpm<med*1.8);            // (a misread note shouldn't bend the line)
+    if(pts.length<3) return '';
+    const ref=metroBpm||med, n=pts.length, mt=pts.reduce((a,p)=>a+p.t,0)/n, mb=pts.reduce((a,p)=>a+p.bpm,0)/n;
+    let sxy=0,sxx=0; pts.forEach(p=>{ sxy+=(p.t-mt)*(p.bpm-mb); sxx+=(p.t-mt)**2; });
+    const slope=sxx>0?sxy/sxx:0, t0=pts[0].t, t1=pts[n-1].t, a=mb+slope*(t0-mt), b=mb+slope*(t1-mt);
+    const sd=Math.sqrt(pts.reduce((s,p)=>s+(p.bpm-(mb+slope*(p.t-mt)))**2,0)/n);
+    const parts=[]; let good=true;
+    if(metroBpm){ const d=(mb-metroBpm)/metroBpm; if(d>=0.03){ parts.push('rushing: '+Math.round(d*100)+'% ahead of the metronome'); good=false; } else if(d<=-0.03){ parts.push('dragging: '+Math.round(-d*100)+'% behind the metronome'); good=false; } }
+    if(Math.abs(b-a)>=Math.max(4, ref*0.06)){ parts.push((b>a?'speeds up':'slows down')+' from '+Math.round(a)+' to '+Math.round(b)+' bpm'); good=false; }
+    else if(sd/ref>=0.05){ parts.push('uneven (±'+Math.round(sd)+' bpm)'); good=false; }
+    if(!parts.length) parts.push('steady (±'+Math.max(1,Math.round(sd))+' bpm)'+(metroBpm?', with the metronome':''));
+    // chart: 300 x 64, the reference tempo dashed across the middle, +/-25% top and bottom
+    const W=300, H=64, X=t=>8+(t1>t0?(t-t0)/(t1-t0):0.5)*(W-16), Y=v=>H/2-Math.max(-1,Math.min(1,(v-ref)/(ref*0.25)))*(H/2-6);
+    const col=v=>{ const d=Math.abs(v-ref)/ref; return d<0.05?'var(--ok)':d<0.1?'var(--listen)':'var(--rec)'; };
+    const svg='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" aria-hidden="true">'
+      +'<line x1="0" x2="'+W+'" y1="'+H/2+'" y2="'+H/2+'" class="ref"/>'
+      +'<line x1="'+X(t0)+'" x2="'+X(t1)+'" y1="'+Y(a)+'" y2="'+Y(b)+'" class="fit"/>'
+      +'<polyline class="ln" points="'+pts.map(p=>X(p.t).toFixed(1)+','+Y(p.bpm).toFixed(1)).join(' ')+'"/>'
+      +pts.map(p=>'<circle cx="'+X(p.t).toFixed(1)+'" cy="'+Y(p.bpm).toFixed(1)+'" r="3" style="fill:'+col(p.bpm)+'"/>').join('')+'</svg>';
+    return '<div class="tempo"><div class="tl"><b>Tempo</b> <span class="'+(good?'c-ok':'')+'">'+parts.join(' · ')+'</span></div>'+svg
+      +'<div class="tax">dashed line: '+(metroBpm?'metronome '+metroBpm:'your tempo '+Math.round(ref))+' bpm · higher = faster</div></div>';
+  }
+  // (note lengths as written at the player's own tempo: on the metronome's grid a steady but different tempo
+  // drifts across the beats and some notes get written longer or shorter, which would look like wobbling)
+  function notesTempo(t){
+    if(!fb.rhythm || !t.notes || t.notes.length<4) return '';
+    const q=quantize(t.notes, t.bpm, undefined, t.detail||0);
+    return tempoHTML(q.slice(0,-1).map((e,i)=>({t:t.notes[i].t0, beats:(q[i+1].s-e.s)/4, dt:t.notes[i+1].t0-t.notes[i].t0})), t.metro?t.metro.bpm:null);
+  }
+  function targetTempo(t, r){
+    const tt=t.target; if(!fb.rhythm || !tt.durs) return '';
+    const pairs=[]; for(let i=0;i+1<r.items.length;i++){ const a=r.items[i], b=r.items[i+1]; if(!a.played || !b.played) continue;
+      pairs.push({t:a.played.t0, beats:tt.onsets[i+1]-tt.onsets[i], dt:b.played.t0-a.played.t0}); }
+    return tempoHTML(pairs, t.metro?t.metro.bpm:null);
+  }
+
   function notesFix(t, lens){
     if(!fb.text || !t.notes || !t.notes.length) return {html:'', nums:{}};
     const key=t.key, rows=[], general=[], goods=[];
@@ -2453,7 +2504,7 @@ function stretch(x, rate){
     } else paper.innerHTML='<div class="sheet-empty">The notation library didn’t load. Check your connection and reload the page.</div>';
     $('sheetKey').textContent = keyLabel(t.key)+' · '+tempo+' bpm'+(unfit?' (first-note length doesn’t fit: auto)':'');
     meta.innerHTML=segHTML(t);
-    list.innerHTML = FX.html + t.notes.map(n=>{
+    list.innerHTML = FX.html + notesTempo(t) + t.notes.map(n=>{
       const c=devC(n.midi,n.cents,t.key), off=fb.tune && Math.abs(c)>=20, tip=off?(c>0?' sharp':' flat'):'';
       return `<span class="${off?(c>0?'sharp':'flat'):''}" title="${c>0?'+':''}${c} cents${tip}">${noteName(n.midi,t.key)}${off?(c>0?'↑':'↓'):''}</span>`;
     }).join(' ') + '<div>'+ASTARGET+SHARE+'</div>';
@@ -2614,7 +2665,7 @@ function stretch(x, rate){
       if(cnt.missed) html+=dot(col.missed, cnt.missed+' missed');
       if(r.extra) html+=dot(css('--ink'), r.extra+' extra');
     }
-    $('notelist').innerHTML='<div class="score">'+html+'</div>'+FX.html+HEAR+SHARE+SERIES_LINK;
+    $('notelist').innerHTML='<div class="score">'+html+'</div>'+FX.html+targetTempo(t, r)+HEAR+SHARE+SERIES_LINK;
     t.lastSummary=(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+(cnt.tune?', '+cnt.tune+' out of tune':'')+(cnt.wrong?', '+cnt.wrong+' wrong':'')+(cnt.missed?', '+cnt.missed+' missed':'');
     makeShareImage();
   }
