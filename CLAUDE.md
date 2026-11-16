@@ -159,6 +159,12 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
 - **Series** (under target notes / a target result: 'Play it 3x 5x 10x back to back'): no playback and no
   feedback between takes (body.series hides the sheet; a bar counts takes, Stop ends early); after the last
   take listening stops and the Summary of exactly those takes opens (`lastSeries`, `summaryTakes`).
+- **Hear it right** (`fixPlan`, `renderFix`, `hearFixed`): each mistake row has a ▶ that plays that note with
+  one note either side as played, a pause, then the same notes corrected from the player's own recording:
+  each note resampled to the right pitch (judging setting) and WSOLA-stretched to its written length at its
+  written place (target tempo from `targetRhythm`, or the sheet's lengths without a target), crossfaded.
+  Missed notes and wrong notes more than a fourth off are a synthesized tone at the take's loudness; extra
+  notes are left out. 'Yours, fixed' (shown when there is anything to fix) plays the whole take corrected.
 - **Readable mistakes** (`fixList`): one numbered row per note in plain words ('you played C4', 'held 37%
   too long', '27 cents flat'), the same number above the note on the staff; wrong/missed, then rhythm,
   then tuning; general points (intervals, extra notes, 'Most often') and a ✓ line for what went well.

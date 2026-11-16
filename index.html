@@ -259,6 +259,8 @@ body.zen .sheet, body.zen .routine, body.zen #toast{display:none !important}
 .fix .what{flex:1; min-width:0}
 .fix .what small{color:var(--muted)}
 .fix .freq{color:var(--muted); font-size:.78rem; white-space:nowrap}
+.fix .fixplay{flex:none; width:26px; height:26px; margin:-2px -4px -2px 0; border-radius:50%; border:1px solid var(--line2); background:var(--surface); color:var(--play); display:grid; place-items:center; padding:0}
+.fix .fixplay svg{width:10px; height:10px; margin-left:1px}
 .goods{display:flex; flex-wrap:wrap; gap:2px 12px; color:var(--ok); font-weight:600; font-size:.82rem; margin:3px 2px 2px}
 /* series: N takes back to back, no playback or feedback between them, then the summary */
 .serieslink{display:inline-flex; align-items:center; gap:4px; margin:8px 0 0; font-size:.8rem; color:var(--muted); vertical-align:middle}
@@ -1593,6 +1595,44 @@ function stretch(x, rate){
 }
 
 
+// ---- Your take, corrected: each note of the recording moved to the right pitch (resampled) and the
+// right length (WSOLA), placed where it should start; a missed note is a plain synthesized tone ----
+function resample(x, f){            // read x at speed f: f > 1 = higher and shorter
+  const n=Math.max(1,Math.floor((x.length-1)/f)), y=new Float32Array(n);
+  for(let i=0;i<n;i++){ const p=i*f, k=Math.floor(p), a=p-k; y[i]=x[k]*(1-a)+(x[k+1]||0)*a; }
+  return y;
+}
+function fixTone(f, n, sr, amp){
+  const y=new Float32Array(n), H=[1,.55,.35,.25,.18,.12,.08]; let ph=0;
+  for(let i=0;i<n;i++){
+    const t=i/sr; ph+=2*Math.PI*f*(1+0.004*Math.sin(2*Math.PI*5.5*t)*Math.min(1,t/0.3))/sr;
+    let v=0; for(let k=0;k<H.length;k++) if(f*(k+1)<sr/2.2) v+=H[k]*Math.sin((k+1)*ph);
+    y[i]=amp*v/1.8*Math.min(1, t/0.04, (n-i)/sr/0.06);
+  }
+  return y;
+}
+// plan: [{src:[t0,t1] | null, at, len, cents, freq}] (seconds); returns the corrected audio
+function renderFix(x, sr, plan){
+  const F=Math.round(0.012*sr), end=Math.max(...plan.map(p=>p.at+p.len))+0.25, out=new Float32Array(Math.ceil(end*sr)+4*F);
+  const rms=plan.filter(p=>p.src).map(p=>{ const a=Math.round(p.src[0]*sr), b=Math.min(x.length,Math.round(p.src[1]*sr)); let e=0; for(let i=a;i<b;i++) e+=x[i]*x[i]; return Math.sqrt(e/Math.max(1,b-a)); }).sort((a,b)=>a-b);
+  const amp=(rms.length ? rms[rms.length>>1] : 0.05)*1.4;
+  for(const p of plan){
+    const want=Math.max(1,Math.round(p.len*sr))+2*F;
+    let y;
+    if(p.src){
+      const a=Math.max(0,Math.round(p.src[0]*sr)-F), b=Math.min(x.length,Math.round(p.src[1]*sr)+F);
+      y=x.slice(a,b);
+      if(Math.abs(p.cents)>=2) y=resample(y, Math.pow(2,p.cents/1200));
+      if(y.length>2100 && Math.abs(y.length/want-1)>0.02) y=stretch(y, Math.max(0.25, y.length/want));
+    } else y=fixTone(p.freq, want, sr, amp);
+    // each piece fades in and out over 2F, so neighbours crossfade at the join
+    const o=Math.round(p.at*sr)-F, n=Math.min(y.length,want);
+    for(let i=0;i<n;i++){ const k=o+i; if(k<0||k>=out.length) continue; out[k]+=y[i]*Math.min(1, i/(2*F), (n-1-i)/(2*F)); }
+  }
+  return out;
+}
+
+
 (() => {
   // Targets are written in LilyPond now: convert stored ones in the old notation once (exercises,
   // routine, the current target, the piece, and the progress / recurring-problem records keyed by them)
@@ -2826,7 +2866,7 @@ function stretch(x, rate){
   // staff), in plain words; wrong / missed notes first, then rhythm, then tuning; then general points
   // (intervals, extra notes) and a line for what went well ----
   const pctTxt=p=>Math.abs(Math.round(p))+'%';
-  function fixList(rows, general=[], goods=[]){
+  function fixList(rows, general=[], goods=[], play=false){
     const by=new Map();
     for(const r of rows){ const g=by.get(r.i); if(g){ g.parts.push(r.part); if(r.sev<g.sev){ g.sev=r.sev; g.cls=r.cls; } g.freq=Math.max(g.freq||0, r.freq||0); } else by.set(r.i,{...r, parts:[r.part]}); }
     const list=[...by.values()].sort((a,b)=>a.sev-b.sev || a.i-b.i), nums={};
@@ -2834,12 +2874,12 @@ function stretch(x, rate){
     const shown=list.slice(0,8);
     let html='';
     if(shown.length || general.length){
-      html='<ol class="fix">'+shown.map(g=>'<li class="fx-'+g.cls+'"><span class="num">'+nums[g.i]+'</span><span class="nm">'+g.name+'</span><span class="what">'+g.parts.join(' · ')+'</span>'+(g.freqTxt?'<span class="freq">'+g.freqTxt+'</span>':'')+'</li>').join('')
+      html='<ol class="fix">'+shown.map(g=>'<li class="fx-'+g.cls+'"><span class="num">'+nums[g.i]+'</span><span class="nm">'+g.name+'</span><span class="what">'+g.parts.join(' · ')+'</span>'+(g.freqTxt?'<span class="freq">'+g.freqTxt+'</span>':'')+(play?'<button class="fixplay" data-i="'+g.i+'" title="Hear it: yours, then right" aria-label="Hear yours, then right">'+PLAYSVG+'</button>':'')+'</li>').join('')
         +(list.length>shown.length?'<li class="fx-more"><span class="num">…</span><span class="what">'+(list.length-shown.length)+' more</span></li>':'')
         +general.map(x=>'<li class="fx-gen fx-'+x.cls+'"><span class="num">'+(x.icon||'•')+'</span><span class="what">'+x.html+'</span></li>').join('')+'</ol>';
     }
     if(goods.length) html+='<div class="goods">'+goods.map(g=>'<span>✓ '+g+'</span>').join('')+'</div>';
-    return {html, nums};
+    return {html, nums, n:list.length+general.length};
   }
   // what to fix in a take without target notes (tuning per note, held lengths)
   // ---- tempo stability: the tempo note by note (written beats / actual seconds between note starts),
@@ -2898,7 +2938,7 @@ function stretch(x, rate){
         rows.push({i, name:noteName(t.notes[i].midi,key), cls:'bad', sev:1, part:'held '+pctTxt((r-1)*100)+(r>1?' too long':' too short')}); });
       if(!any) goods.push('Even note lengths');
     }
-    return fixList(rows, general, goods);
+    return fixList(rows, general, goods, true);
   }
 
   function feedbackHTML(t, lens){
@@ -3004,7 +3044,7 @@ function stretch(x, rate){
     if(right===r.items.length && !r.extra) goods.push('Every note right');
     if(fb.tune && !rows.some(x=>x.cls==='tune') && right) goods.push('In tune');
     if(R && !R.flags.length) goods.push('Rhythm right');
-    return fixList(rows, general, goods);
+    return fixList(rows, general, goods, true);
   }
   function targetFeedbackHTML(r, key, R, played, tt){
     if(!fb.text) return '';
@@ -3067,7 +3107,7 @@ function stretch(x, rate){
     list.innerHTML = FX.html + notesTempo(t) + t.notes.map(n=>{
       const c=devC(n.midi,n.cents,t.key), off=fb.tune && Math.abs(c)>=20, tip=off?(c>0?' sharp':' flat'):'';
       return `<span class="${off?(c>0?'sharp':'flat'):''}" title="${c>0?'+':''}${c} cents${tip}">${noteName(n.midi,t.key)}${off?(c>0?'↑':'↓'):''}</span>`;
-    }).join(' ') + '<div>'+ASTARGET+SHARE+'</div>';
+    }).join(' ') + '<div>'+(FX.n?FIXBTN:'')+ASTARGET+SHARE+'</div>';
     hl={take:t, times:t.notes.map((n,i)=>[n.t0,n.t0+lens[i].a]), lens:fb.rhythm?lens:null, bars:[], els:noteGroups(paper,map), spans:[...list.querySelectorAll(':scope > span')], cur:-1};
     // colour notes on the staff like the feedback text: amber = out of tune, red = length far off
     const amber=css('--listen'), red=css('--rec');
@@ -3157,6 +3197,61 @@ function stretch(x, rate){
   function keyOf(midis){ if(midis.key){ const k=KEYS.find(k=>k.name===midis.key); if(k) return k; }
     return midis.length && midis.every(m=>m%12===midis[0]%12) ? KEYS[0] : guessKey(midis.map((m,i)=>({midi:m,t0:i,t1:i+1}))); }
 
+  // ---- your take, corrected (renderFix): target items a..b, or the take's own notes a..b ----
+  // With target notes: each note at its written place and length (at the take's tempo), at the right
+  // pitch (the judging setting); a wrong note more than a fourth off and a missed note are a tone.
+  // Without: each note in tune, as long as written on the sheet.
+  function fixPlan(t, a, b){
+    const plan=[], seg=n=>{ const k=t.notes.indexOf(n), nx=t.notes[k+1]; return [n.t0, Math.max(n.t0+0.06, nx ? Math.min(n.t1, nx.t0) : n.t1)]; };
+    if(t.target){
+      const tt=t.target, key=keyOf(tt.notes), r=judge(alignTarget(tt.notes, t.notes, tt.hasOct), key), R=targetRhythm(t, r), it=r.items;
+      const pc=m=>m*100+refCents(m,key);
+      const ls=it.filter(x=>x.played).map(x=>x.played.t1-x.played.t0).sort((x,y)=>x-y), med=ls.length ? ls[ls.length>>1] : 0.5;
+      const spb = tt.durs ? (R ? R.spb : 60/(t.metro ? t.metro.bpm : metro.bpm)) : 0;
+      let cur=0;
+      for(let i=a;i<=b;i++){
+        const x=it[i], p=x.played; let at, len;
+        if(spb){ at=(tt.onsets[i]-tt.onsets[a])*spb; len=tt.durs[i]*spb; }
+        else { const nx=it[i+1]; at=cur; len = p ? (i<b && nx && nx.played ? Math.max(0.12, nx.played.t0-p.t0) : p.t1-p.t0) : med; cur+=len; }
+        const cents = p ? pc(x.midi)-(p.midi*100+p.cents) : 0;
+        if(p && Math.abs(cents)<=550) plan.push({src:seg(p), at, len, cents});
+        else plan.push({src:null, at, len, freq:A4()*Math.pow(2,(pc(x.midi)/100-69)/12)});
+      }
+    } else {
+      const {q, tempo}=rhythmOf(t), six=60/tempo/4, base=q[a].s;
+      for(let i=a;i<=b;i++){ const n=t.notes[i];
+        plan.push({src:seg(n), at:(q[i].s-base)*six, len:Math.max(1,q[i].e-q[i].s)*six, cents:refCents(n.midi,t.key)-n.cents}); }
+    }
+    return plan;
+  }
+  // play the corrected notes; withYours: first the same notes as played, then a short pause
+  async function hearFixed(t, a, b, withYours){
+    if(!t || !t.notes || !t.notes.length || state==='recording') return;
+    ensureAC(); try{ await ac.resume(); }catch(e){} anchorClock();
+    const x=t.buffer.getChannelData(0), sr=t.buffer.sampleRate, plan=fixPlan(t, a, b);
+    if(!plan.length) return;
+    const parts=[];
+    const src=plan.filter(p=>p.src);
+    if(withYours && src.length){
+      const s0=Math.max(0,Math.round((Math.min(...src.map(p=>p.src[0]))-0.05)*sr)), s1=Math.min(x.length,Math.round((Math.max(...src.map(p=>p.src[1]))+0.12)*sr));
+      parts.push(x.slice(s0,s1), new Float32Array(Math.round(0.6*sr)));
+    }
+    parts.push(renderFix(x, sr, plan));
+    const n=parts.reduce((k,y)=>k+y.length,0), buf=ac.createBuffer(1,n,sr), all=new Float32Array(n);
+    let o=0; for(const y of parts){ all.set(y,o); o+=y.length; }
+    buf.copyToChannel(all,0);
+    toast(withYours ? 'Yours, then right' : 'Your take, fixed');
+    playTake({id:'fix', buffer:buf}, 1);
+  }
+  // a mistake row's ▶: that note with one note either side
+  $('sheet').addEventListener('click',e=>{
+    const b=e.target.closest('.fixplay, .hearfix'); if(!b || !shownTake) return;
+    e.stopPropagation();
+    const t=shownTake, n=t.target ? t.target.notes.length : t.notes.length;
+    if(b.classList.contains('hearfix')) hearFixed(t, 0, n-1, false);
+    else { const i=+b.dataset.i; hearFixed(t, Math.max(0,i-1), Math.min(n-1,i+1), true); }
+  }, true);
+
   async function hearTarget(notes, durs, onsets){
     ensureAC(); await ac.resume(); anchorClock();
     if(state==='recording') return;
@@ -3187,7 +3282,9 @@ function stretch(x, rate){
     if(shownTake && shownTake.target && shownTake.notes){ const r=alignTarget(t.notes, shownTake.notes, t.hasOct); notes=t.notes.map(m=>m+r.shift); }
     hearTarget(notes, t.durs, t.onsets);
   });
-  const HEAR='<button class="hear">'+'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>Hear it</button>';
+  const PLAYSVG='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>';
+  const HEAR='<button class="hear">'+PLAYSVG+'Hear it</button>';
+  const FIXBTN='<button class="hear hearfix" title="Your own recording with every note at the right pitch and length">'+PLAYSVG+'Yours, fixed</button>';
 
   function renderTargetOnly(){
     $('sheetTitle').textContent='Notes to play'; $('sheetMeta').textContent=''; $('firstnote').hidden=true;
@@ -3228,7 +3325,7 @@ function stretch(x, rate){
       if(cnt.missed) html+=dot(col.missed, cnt.missed+' missed');
       if(r.extra) html+=dot(css('--ink'), r.extra+' extra');
     }
-    $('notelist').innerHTML='<div class="score">'+html+'</div>'+sightBar(t)+FX.html+targetTempo(t, r)+HEAR+SHARE+(tt.sight?'':SERIES_LINK);
+    $('notelist').innerHTML='<div class="score">'+html+'</div>'+sightBar(t)+FX.html+targetTempo(t, r)+HEAR+(FX.n?FIXBTN:'')+SHARE+(tt.sight?'':SERIES_LINK);
     t.lastSummary=(right===n && !r.extra ? 'All '+n+' notes right' : right+' of '+n+' right')+(cnt.tune?', '+cnt.tune+' out of tune':'')+(cnt.wrong?', '+cnt.wrong+' wrong':'')+(cnt.missed?', '+cnt.missed+' missed':'');
     makeShareImage();
   }
