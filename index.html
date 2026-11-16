@@ -1085,7 +1085,7 @@ function tempoFromFirst(notes,val){
   return {bpm:Math.max(30,Math.min(240,60/(best*4))), ref:t0};
 }
 
-function quantize(notes,bpm,refOverride,detail=0){
+function quantize(notes,bpm,refOverride,detail=0,onGrid=false){
   if(!notes.length) return [];
   const six=60/bpm/4, ref=(refOverride!==undefined)?refOverride:notes[0].t0;
   // snap to eighths unless the playing really has sixteenths in it
@@ -1101,7 +1101,7 @@ function quantize(notes,bpm,refOverride,detail=0){
   for(let i=1;i<ev.length;i++) if(ev[i].s<=ev[i-1].s) ev[i].s=ev[i-1].s+g;
   // clean: after a real rest (3/4 beat or more of silence) the next phrase starts on the beat, keeping
   // its own rhythm (a breath between phrases isn't a syncopation)
-  if(detail===0) for(let i=1;i<ev.length;i++){
+  if(detail===0 && !onGrid) for(let i=1;i<ev.length;i++){
     if((notes[i].t0-notes[i-1].t1)/six<3) continue;
     let ns=Math.round(ev[i].s/4)*4; if(ns<=ev[i-1].s) ns+=4;
     const dl=ns-ev[i].s; if(dl) for(let j=i;j<ev.length;j++){ ev[j].s+=dl; ev[j].e+=dl; }
@@ -1128,6 +1128,12 @@ const KEYS=[
   {name:'Bb',pc:10,flat:true,sig:{B:-1,E:-1}},
   {name:'Eb',pc:3,flat:true,sig:{B:-1,E:-1,A:-1}},
   {name:'Ab',pc:8,flat:true,sig:{B:-1,E:-1,A:-1,D:-1}},
+  {name:'B',pc:11,flat:false,sig:{F:1,C:1,G:1,D:1,A:1}},
+  {name:'Db',pc:1,flat:true,sig:{B:-1,E:-1,A:-1,D:-1,G:-1}},
+  {name:'F#',pc:6,flat:false,sig:{F:1,C:1,G:1,D:1,A:1,E:1}},
+  {name:'Gb',pc:6,flat:true,sig:{B:-1,E:-1,A:-1,D:-1,G:-1,C:-1}},
+  {name:'C#',pc:1,flat:false,sig:{F:1,C:1,G:1,D:1,A:1,E:1,B:1}},
+  {name:'Cb',pc:11,flat:true,sig:{B:-1,E:-1,A:-1,D:-1,G:-1,C:-1,F:-1}},
 ];
 const MAJOR=[0,2,4,5,7,9,11];
 function guessKey(notes){
@@ -1144,7 +1150,11 @@ function guessKey(notes){
   }
   return best;
 }
-function spell(m,key){ const [L,a]=(key&&key.flat?FLAT_SP:SHARP_SP)[m%12]; return {L,a,oct:Math.floor(m/12)-1}; }
+const NAT_PC={C:0,D:2,E:4,F:5,G:7,A:9,B:11};
+function spell(m,key){
+  const x=key && key.sp && key.sp[((m%12)+12)%12];
+  if(x){ const [L,a]=x; return {L,a,oct:Math.round((m-a-NAT_PC[L])/12)-1}; }   // as written (C# not Db, E# not F)
+  const [L,a]=(key&&key.flat?FLAT_SP:SHARP_SP)[m%12]; return {L,a,oct:Math.floor(m/12)-1}; }
 // Pythagorean intonation (pure fifths, as a violin is tuned): each fifth is ~1.955 cents wider than in
 // equal temperament. Counting fifths from A (the tuning note) gives each spelled note's offset:
 // G -3.9, D -2.0, E +2.0, B +3.9, F# +5.9, C -5.9, Bb -9.8 ... F# and Gb differ, so spelling matters.
@@ -1165,7 +1175,7 @@ function intervalsOf(notes, key){
   }
   return out;
 }
-function noteName(m,key){ const {L,a,oct}=spell(m,key); return L+(a>0?'♯':a<0?'♭':'')+oct; }
+function noteName(m,key){ const {L,a,oct}=spell(m,key); return L+(a===2?'𝄪':a>0?'♯'.repeat(a):'♭'.repeat(-a))+oct; }
 
 // `map`, if given, gets one entry per drawn note head (tied pieces included):
 // the index of the event it belongs to. Used to light up the note being played.
@@ -1173,7 +1183,8 @@ function toAbc(ev,bpm,mode,barsPerLine,key,beats,map,keepLast,opt={}){
   key=key||KEYS[0]; beats=beats||4;
   const REST=opt.rest||'z';
   let meter=beats+'/4';
-  if(typeof beats==='string'){ meter=beats; const [n,d]=beats.split('/'); beats=n*4/d; }   // '6/8': 3 quarter beats a bar
+  if(typeof beats==='string'){ meter=beats; beats=lyBeats(beats); }   // '6/8': 3 quarter beats a bar ('3+2/8' too)
+  if(!(beats>0 && beats<=16 && (beats*4)%1===0)){ beats=4; meter='4/4'; }   // (a meter it can't bar would loop forever)
   const BAR=beats*4, VALID=[16,12,8,6,4,3,2,1];
   const shift = mode==='guitar'?12:0;
   let clef='treble';
@@ -1282,7 +1293,10 @@ function parseLy(src){
   const s=src.replace(/%\{[\s\S]*?%\}/g,' ').replace(/%[^\n]*/g,' ');
   const notes=[], names=[], durs=[], onsets=[], checks=[], scopes=[];
   let i=0, pos=0, dur=1, timed=false, hasOct=false, meter=null, factor=1, pendingTuplet=null;
-  let mode = /[{}]|\\relative|\\fixed/.test(s) ? 'abs' : 'rel', prevD = mode==='rel' ? 4*7+3 : null, fixedO=0;
+  // plain notes are relative; a brace that opens music (not a tuplet's, a repeat's or a markup's) or
+  // \relative / \fixed means LilyPond's own rules
+  const opens=s.replace(/\\(tuplet|times)\s+\d+\/\d+(\s+\d+\.*)?\s*\{/g,'').replace(/\\repeat\s+[a-z]+\s*\d*\s*\{/g,'').replace(/\\markup\s*\{/g,'');
+  let mode = /\{|\\relative|\\fixed/.test(opens) ? 'abs' : 'rel', prevD = mode==='rel' ? 4*7+3 : null, fixedO=0, grace=false;
   let tie=false, chord=null, tempo=0;
   const at=re=>{ re.lastIndex=i; const m=re.exec(s); if(m) i=re.lastIndex; return m; };
   const ws=()=>at(/\s*/y);
@@ -1331,10 +1345,13 @@ function parseLy(src){
       if(cmd==='\\') return {error:'\\\\ (only one voice can be read)'};
       if(cmd==='relative'){ mode='rel'; ws(); const p=pitch(); if(p&&p.bad) return bad(); prevD=p ? (3+p.marks)*7+p.L : null; hasOct=true; }
       else if(cmd==='fixed'){ ws(); const p=pitch(); if(!p||p.bad) return bad(); mode='fixed'; fixedO=3+p.marks; hasOct=true; }
-      else if(cmd==='time'){ ws(); const t=at(/(?:\d+,)*\d+\s+/y); const m2=at(/(\d+(?:\+\d+)*)\/(\d+)/y); if(!m2) return bad(); meter=m2[1]+'/'+m2[2]; }
+      else if(cmd==='time'){ ws(); const t=at(/(?:\d+,)*\d+\s+/y); const m2=at(/(\d+(?:\+\d+)*)\/(\d+)/y); if(!m2) return bad();
+        const bb=lyBeats(m2[1]+'/'+m2[2]); if(!(bb>0 && bb<=16 && (bb*4)%1===0)) return {error:'\\time '+m2[0]}; meter=m2[1]+'/'+m2[2]; }
       else if(cmd==='key'){ ws(); const p=pitch(); if(!p||p.bad) return bad(); ws(); const md=at(/\\(major|minor|ionian|aeolian|dorian|phrygian|lydian|mixolydian|locrian)/y);
-        const pc=((LY_NAT[p.L]+p.acc+((md&&/minor|aeolian/.test(md[1]))?3:0))%12+12)%12;
-        const k=(!md || /major|minor|ionian|aeolian/.test(md[1])) && KEYS.find(k=>k.pc===pc); if(k) notes.key=k.name; else delete notes.key; }
+        const minor=!!(md && /minor|aeolian/.test(md[1])), L=(p.L+(minor?2:0))%7, pc=((LY_NAT[p.L]+p.acc+(minor?3:0))%12+12)%12;
+        let a=pc-LY_NAT[L]; if(a>6) a-=12; if(a<-6) a+=12;
+        const nm=LY_STEP[L].toUpperCase()+(a>0?'#'.repeat(a):'b'.repeat(-a));
+        const k=(!md || /major|minor|ionian|aeolian/.test(md[1])) && (KEYS.find(k=>k.name===nm) || KEYS.find(k=>k.pc===pc)); if(k) notes.key=k.name; else delete notes.key; }
       else if(cmd==='tuplet' || cmd==='times'){ ws(); const m2=at(/(\d+)\/(\d+)/y); if(!m2) return bad(); ws(); at(/\d+\.*\s*/y);
         pendingTuplet = cmd==='tuplet' ? +m2[2]/+m2[1] : +m2[1]/+m2[2]; }
       else if(cmd==='partial'){ ws(); const d=duration(); if(!(d>0)) return bad(); if(!notes.length && pos===0){ pos=Math.max(0,lyBeats(meter||'4/4')-d); timed=true; } }
@@ -1343,6 +1360,8 @@ function parseLy(src){
         if(m2 && !tempo) tempo=Math.round(+m2[3]*4/+m2[1]*(2-Math.pow(.5,m2[2].length))); }
       else if(cmd==='repeat'){ ws(); at(/[a-z]+\s*\d*/y); }
       else if(cmd==='header'||cmd==='layout'||cmd==='midi'||cmd==='paper'||cmd==='with') skipBlock();
+      else if(cmd==='markup'){ ws(); if(s[i]==='{') skipBlock(); else at(/"(?:[^"\\]|\\.)*"|\\?[A-Za-z]+/y); }
+      else if(/^(grace|acciaccatura|appoggiatura|slashedGrace)$/.test(cmd)){ ws(); if(s[i]==='{') skipBlock(); else grace=true; }   // grace notes take no time
       else if(cmd==='transpose'||cmd==='override'||cmd==='set') return {error:'\\'+cmd};
       // anything else (\p \f \staccato \fermata \score \major ...) carries no notes
       continue;
@@ -1358,12 +1377,15 @@ function parseLy(src){
     if(c==='~'){ i++; tie=true; continue; }
     if('()[]'.includes(c)){ i++; continue; }
     if(c==='"'){ if(!at(/"(?:[^"\\]|\\.)*"/y)) return bad(); continue; }
-    if('-^_'.includes(c)){ if(!at(/[-^_](?:[.>^_!+-]|\d+|"(?:[^"\\]|\\.)*"|\\[a-zA-Z]+)/y)) return bad(); continue; }
+    if('-^_'.includes(c)){ const am=at(/[-^_](?:[.>^_!+-]|\d+|"(?:[^"\\]|\\.)*"|\\[a-zA-Z]+)/y); if(!am) return bad();
+      if(/markup$/.test(am[0])){ ws(); if(s[i]==='{') skipBlock(); else at(/"(?:[^"\\]|\\.)*"|\\?[A-Za-z]+/y); }   // ^\markup { dolce }
+      continue; }
     if(/[rRs]/.test(c) && !/[a-z]/.test(s[i+1]||'')){ i++; const len=length(); if(!(len>0)) return bad(); pos+=len; tie=false; continue; }
     const st0=i, p=pitch();
     if(!p || p.bad){ i=st0; return bad(); }
     if(chord){ const n=place(p); if(!chord.length) chord.firstD=prevD; chord.push(n); continue; }
     const start=i, n=place(p), len=length(); if(!(len>0)){ i=start; return bad(); }
+    if(grace){ grace=false; continue; }
     addNote(n,len);
   }
   if(!timed) checks.length=0;
@@ -1375,6 +1397,7 @@ function parseLy(src){
       const sh=b-d[0]; if(sh>1e-6){ for(let k=0;k<onsets.length;k++) onsets[k]+=sh; for(let k=0;k<checks.length;k++) checks[k]+=sh; }
     }
   }
+  notes.names=names;
   return {notes, names, hasOct, durs: timed?durs:null, onsets: timed?onsets:null, meter: timed?meter:null, checks, tempo};
 }
 // Either notation: LilyPond, or the old one (converted when it is stored)
@@ -1406,23 +1429,34 @@ function writeLy(o){
     prevD=d; return lyName(nameOf(i))+(marks>0?"'".repeat(marks):",".repeat(-marks)); };
   if(!o.durs) o.notes.forEach((m,i)=>out.push(pitch(i)));
   else {
-    const bar=o.meter ? lyBeats(o.meter) : 0, VAL=[[6,'1.'],[4,'1'],[3.5,'2..'],[3,'2.'],[2,'2'],[1.75,'4..'],[1.5,'4.'],[1,'4'],[0.75,'8.'],[0.5,'8'],[0.375,'16.'],[0.25,'16'],[0.125,'32']];
+    const bar=o.meter ? lyBeats(o.meter) : 0, VAL=[[6,'1.'],[4,'1'],[3.5,'2..'],[3,'2.'],[2,'2'],[1.75,'4..'],[1.5,'4.'],[1,'4'],[0.75,'8.'],[0.5,'8'],[0.375,'16.'],[0.25,'16'],[0.125,'32'],[0.0625,'64']];
+    const isVal=d=>VAL.some(x=>Math.abs(x[0]-d)<1e-6), isTrip=d=>!isVal(d) && isVal(d*1.5);   // a third of a half, quarter, eighth...
     let pos=0, last=null;
+    const atBar=()=>{ if(bar && Math.abs(pos/bar-Math.round(pos/bar))<1e-6) out.push('|'); };
     const emit=(len,first,rest)=>{
       let p=first;
       while(len>1e-6){
-        const room = bar ? bar-(pos%bar) : Infinity, v=VAL.find(x=>x[0]<=Math.min(len,room)+1e-6);
-        if(!v){ pos+=len; break; }
-        len-=v[0]; pos+=v[0];
+        const room = bar ? bar-(pos%bar) : Infinity;
+        const v=VAL.find(x=>x[0]<=Math.min(len,room)+1e-6) || VAL[VAL.length-1];   // (never drop a note)
+        const step=Math.min(v[0], len);
+        len-=step; pos+=step;
         out.push(p+(v[1]===last?'':v[1])+(!rest && len>1e-6?'~':'')); last=v[1];
         p = rest ? 'r' : p.replace(/[',]+$/,'');
-        if(bar && Math.abs(pos/bar-Math.round(pos/bar))<1e-6) out.push('|');
+        atBar();
       }
     };
-    o.notes.forEach((m,i)=>{
-      if(o.onsets[i]>pos+1e-6) emit(o.onsets[i]-pos, 'r', true);
-      emit(o.durs[i], pitch(i), false);
-    });
+    // notes and the rests between them, then written in order; a run of triplet values is one \tuplet
+    const items=[]; let at=0;
+    o.notes.forEach((m,i)=>{ if(o.onsets[i]>at+1e-6) items.push({rest:true, d:o.onsets[i]-at}); items.push({i, d:o.durs[i]}); at=o.onsets[i]+o.durs[i]; });
+    for(let k=0;k<items.length;){
+      if(isTrip(items[k].d)){
+        const grp=[]; while(k<items.length && isTrip(items[k].d)) grp.push(items[k++]);
+        const toks=grp.map(x=>{ const v=VAL.find(y=>Math.abs(y[0]-x.d*1.5)<1e-6)[1], t=(x.rest?'r':pitch(x.i))+(v===last?'':v); last=v; return t; });
+        out.push('\\tuplet 3/2 { '+toks.join(' ')+' }'); pos+=grp.reduce((a,x)=>a+x.d,0); atBar();
+        continue;
+      }
+      const x=items[k++]; emit(x.d, x.rest ? 'r' : pitch(x.i), !!x.rest);
+    }
     while(out[out.length-1]==='|') out.pop();
   }
   return o.bare ? out.join(' ') : '\\relative { '+out.join(' ')+' }';
@@ -1464,6 +1498,7 @@ function parseOldTarget(str){
     notes.push(midi); prev=midi;
     const L=m[1].toUpperCase(); names.push(L+(acc>0?'#'.repeat(acc):'b'.repeat(-acc))+(Math.round((midi-PC[L]-acc)/12)-1));
   }
+  notes.names=names;
   return {notes, names, hasOct, durs: timed?durs:null, onsets: timed?onsets:null, meter: timed?meter:null};
 }
 
@@ -1510,8 +1545,8 @@ function parseMusicXML(text){
         else if(n==='forward'){ pos+=(+txt(el,'duration')||0)/div; end=Math.max(end,pos); }
         else if(n==='note'){
           if(kid(el,'grace')){ flags.grace++; continue; }
-          if(kid(el,'cue')) continue;
           const chord=!!kid(el,'chord'), d=(+txt(el,'duration')||0)/div;
+          if(kid(el,'cue')){ if(!chord){ pos+=d; end=Math.max(end,pos); } continue; }   // (someone else's notes: time passes)
           const v=txt(el,'voice')||'1', st=txt(el,'staff')||'1';
           if(voice===null && st==='1' && !chord) voice=v;
           const mine = v===voice && st==='1';
@@ -1582,7 +1617,7 @@ async function unzipMXL(buf){
   if(!rootName) throw new Error('No score found in this .mxl file.');
   return read(rootName);
 }
-const FIFTHS_KEY={'-4':'Ab','-3':'Eb','-2':'Bb','-1':'F',0:'C',1:'G',2:'D',3:'A',4:'E'};
+const FIFTHS_KEY={'-7':'Cb','-6':'Gb','-5':'Db','-4':'Ab','-3':'Eb','-2':'Bb','-1':'F',0:'C',1:'G',2:'D',3:'A',4:'E',5:'B',6:'F#',7:'C#'};
 // bars a..b (indexes) of a part as target text: rests fill the gaps, a note tied in from before
 // the first bar is a rest, the last note ends at the last barline
 function pieceTarget(part, a, b){
@@ -1806,7 +1841,9 @@ function renderFix(x, sr, plan){
       let buf; try{ buf=new AudioBuffer({length:n, sampleRate:r.sr, numberOfChannels:1}); }
       catch(e){ const OC=window.OfflineAudioContext||window.webkitOfflineAudioContext; buf=new OC(1,1,r.sr).createBuffer(1,n,r.sr); }
       const x=buf.getChannelData(0); for(let i=0;i<n;i++) x[i]=pcm[i]/(pcm[i]<0?0x8000:0x7fff);
-      const tg = r.target && isOldTarget(r.target.str) ? {...r.target, str:oldToLy(r.target.str)} : r.target;
+      let tg=r.target;
+      if(tg && tg.str){ const str=isOldTarget(tg.str) ? oldToLy(tg.str) : tg.str, pt=parseTarget(str);
+        tg = pt.error ? {...tg, str} : {...tg, str, notes:pt.notes, names:pt.names, hasOct:pt.hasOct, durs:pt.durs, onsets:pt.onsets, meter:pt.meter}; }
       return {id:r.id, buffer:buf, dur:r.dur, audioStart:r.audioStart, barStartAbs:r.barStartAbs, metro:r.metro, target:tg, A:r.A, restored:true};
     }).filter(t=>!takes.some(k=>k.id===t.id));
     takeCounter=Math.max(takeCounter, ...back.map(t=>t.id));
@@ -1872,7 +1909,7 @@ function renderFix(x, sr, plan){
   const coach={on:false, full:null, a:0, b:0, tries:0, good:0, why:'', phase:'whole'};
   let coachSetting=false;
   function setTarget(str, quiet){
-    if(!coachSetting && coach.full){ coach.full=null; coach.tries=0; coach.good=0; setTimeout(renderCoachBar,0); }
+    if(!coachSetting && coach.full){ coach.full=null; coach.tries=0; coach.good=0; coach.phase='whole'; setTimeout(renderCoachBar,0); }
     str=(str||'').trim();
     if(!str){ target=null; }
     else {
@@ -1914,10 +1951,10 @@ function renderFix(x, sr, plan){
     const pc=+$('genKey').value, type=$('genType').value, oct=+$('genOct').value;
     const seq=makeScale(pc, type, oct, instr().strings[0]);
     const tonic=(/natural|harmonic|melodic|arpMinor/.test(type)?MIN_TONIC:MAJ_TONIC)[pc].replace('#','♯').replace('b','♭');
-    return {seq, name: tonic+' '+GEN_NAMES[type]+', '+oct+' oct'};
+    return {seq, name: tonic+' '+GEN_NAMES[type]+', '+oct+' oct', key: majorOf(/natural|harmonic|melodic|arpMinor/.test(type) ? MIN_TONIC[pc] : MAJ_TONIC[pc], /natural|harmonic|melodic|arpMinor/.test(type))};
   }
   $('genGo').onclick=e=>{ e.stopPropagation(); const g=generated();
-    $('targetIn').value=compactTarget(g.seq, g.seq.map((x,i)=>i===g.seq.length-1?2:1)); $('targetName').value=g.name; $('targetErr').textContent=''; };
+    $('targetIn').value=compactTarget(g.seq, g.seq.map((x,i)=>i===g.seq.length-1?2:1), {key:g.key}); $('targetName').value=g.name; $('targetErr').textContent=''; };
 
   // ---- practice routine: exercises in order, each with its own tempo ----
   let routine=null; try{ routine=JSON.parse(localStorage.getItem('pib-routine')||'null'); }catch(e){}
@@ -2034,12 +2071,18 @@ function renderFix(x, sr, plan){
     rests:[[1,-1,1,1],[1,1,-1,1],[-.5,.5,1,1,1],[1,-.5,.5,1,1],[.5,.5,-1,2]],
   };
   const pick=a=>a[Math.floor(Math.random()*a.length)];
+  // the key signature of a tonic ('G#' minor -> 'B'), as a KEYS name (null if it has none there)
+  function majorOf(tonic, minor){
+    const L0='CDEFGAB'.indexOf(tonic[0]), a0=tonic[1]==='#'?1:tonic[1]==='b'?-1:0, pc=(NAT_PC[tonic[0]]+a0+(minor?3:0)+12)%12, L=(L0+(minor?2:0))%7;
+    let a=pc-NAT_PC['CDEFGAB'[L]]; if(a>6) a-=12; if(a<-6) a+=12;
+    const nm='CDEFGAB'[L]+(a>0?'#':a<0?'b':''); return KEYS.some(k=>k.name===nm) ? nm : null;
+  }
   function makeDrill(midi, kind){
     const pool = kind==='mixed' ? [].concat(...Object.values(DRILLS)) : DRILLS[kind];
     const bars=[pick(pool), pick(pool)];
     const seq=[], durs=[], {L,a,oct}=spell(midi,KEYS[0]), name=L+(a>0?'#':'')+oct;
     for(const bar of bars) for(const d of bar){ if(d<0){ seq.push({rest:true}); durs.push(-d); } else { seq.push({midi, name}); durs.push(d); } }
-    return compactTarget(seq, durs);
+    return compactTarget(seq, durs, {meter:'4/4'});
   }
   function setFocus(f){
     if(f==='zen'){ setZen(true); return; }
@@ -2139,7 +2182,7 @@ function renderFix(x, sr, plan){
   $('mxUse').onclick=e=>{ e.stopPropagation(); usePiece(); };
   // the next / previous section of the same length
   function pieceStep(dir){
-    const part=piece.parts[piece.part], n=part.bars.length, [a,b]=pieceRange(), len=b-a+1;
+    const part=piece.parts[piece.part], n=part.bars.length, [a,b]=pieceRange(), len=b-a+1-(a===0 && pick0(part) && b>0 ? 1 : 0);
     if(dir>0){ if(b>=n-1){ toast('That was the end of the piece.'); return; } piece.a=b+1; piece.b=Math.min(n-1,b+len); }
     else { if(a<=0) return; piece.b=a-1; piece.a=Math.max(0,a-len); }
     piece.from=piece.a; storePiece(); renderPiece(); usePiece();
@@ -2191,7 +2234,7 @@ function renderFix(x, sr, plan){
       if(nd===d && i<durs.length-1) nd = d<L.span ? d+1 : d-1;
       d=nd; seq.push(up[d]);
     }
-    return compactTarget(seq, durs);
+    return compactTarget(seq, durs, {meter:'4/4', key:majorOf(MAJ_TONIC[pc], false)});
   }
   function newSight(){
     const level=+$('sightLvl').value||sightSt.level;
@@ -2258,7 +2301,7 @@ function renderFix(x, sr, plan){
   // a target with a time signature sets the metronome's beats per bar (quarter beats, 2-6)
   function followMeter(){
     if(!target || !target.meter) return;
-    const [n,d]=target.meter.split('/'), b=n*4/d;
+    const b=lyBeats(target.meter);
     if(b>=2 && b<=6 && b%1===0 && b!==metro.bpb){ metro.bpb=b; $('bpb').value=b; renderMetro(); }
   }
   const useTarget=()=>{ const ok=setTarget($('targetIn').value); if(ok){ followMeter(); streak=0; setTimeout(refreshDrone,0); shownTake=null; sheetView='result'; if(ok!=='warn') openTarget(false); save(); renderTakes(); renderSheet(); } };
@@ -2373,6 +2416,7 @@ function renderFix(x, sr, plan){
     }
   }
   async function openTuner(open){
+    if(open && state==='recording') finishTake();         // (a take isn't paused by the tuner: it ends here)
     tunerOpen=open; $('tunerPanel').hidden=!open; $('tunerBtn').setAttribute('aria-expanded',open); $('tunerBtn').classList.toggle('on',open);
     if(open){
       openTarget(false); $('settings').open=false; if(statsOpen) openStats(false); tHist=[]; showTune(null);
@@ -2414,6 +2458,7 @@ function renderFix(x, sr, plan){
   const SERIES_LINK='<div class="serieslink" title="Play it several times back to back, without playback or feedback in between, then see what keeps going wrong">Back to back <button data-series="3">3×</button><button data-series="5">5×</button><button data-series="10">10×</button></div>';
   function renderSeriesBar(){
     const bar=$('seriesBar');
+    renderCoachBar();
     if(!series){ bar.hidden=true; document.body.classList.remove('series'); return; }
     document.body.classList.add('series'); bar.hidden=false;
     const k=series.ids.length;
@@ -2422,6 +2467,7 @@ function renderFix(x, sr, plan){
   }
   async function startSeries(n){
     if(!target || target.ear) return;
+    if(state==='recording'){ toast('Finish this take first'); return; }
     n=Math.min(n, MAX_TAKES);
     series={n, ids:[], str:target.str};
     stopPlayback(); renderSeriesBar(); window.scrollTo({top:0, behavior:'smooth'});
@@ -2599,7 +2645,7 @@ function renderFix(x, sr, plan){
     if(!t.target.ear && !t.target.sight && !t.target.drill)    // (generated phrases aren't exercises to come back to)
       recordProgress(t.target.str,{clean, right:cnt.ok+cnt.tune, total:n, inTune:cnt.ok, bpm:t.metro?t.metro.bpm:0});
     const need=+$('ladder').value;
-    if(need && t.metro && metro.on){
+    if(need && t.metro && metro.on && !t.series){
       if(clean){
         streak++;
         if(streak>=need){ streak=0; pendingBpm=Math.min(240, metro.bpm + +$('ladderStep').value);
@@ -2644,12 +2690,13 @@ function renderFix(x, sr, plan){
     let durs=null, onsets=null;
     if(tt.durs){ const bar=tt.meter ? lyBeats(tt.meter) : metro.bpb, lead=tt.onsets[a]%bar;
       durs=tt.durs.slice(a,b+1); onsets=tt.onsets.slice(a,b+1).map(o=>o-tt.onsets[a]+lead); }
-    return writeLy({notes, names:tt.names?tt.names.slice(a,b+1):null, durs, onsets, meter:tt.meter, key:KEYS.includes(key)?key.name:null, bare:!tt.hasOct});
+    return writeLy({notes, names:tt.names?tt.names.slice(a,b+1):null, durs, onsets, meter:tt.meter, key:keyName(key), bare:!tt.hasOct});
   }
   function coachTarget(str){ coachSetting=true; setTarget(str, true); coachSetting=false; if(target && coach.full) target.coach=true; }
   function coachBack(msg){
     if(coach.full){ coachTarget(coach.full.str); target.coach=false; coach.full=null; }
-    coach.tries=0; coach.good=0; coach.phase='whole'; coach.slower=0; coach.take=null;
+    if(coach.bpm0 && coach.slower && metro.bpm===coach.slower) setMetroBpm(coach.bpm0);   // (back to the tempo before the slow-down)
+    coach.bpm0=0; coach.tries=0; coach.good=0; coach.phase='whole'; coach.slower=0; coach.take=null;
     if(msg) toast(msg);
     shownTake=null; sheetView='result'; renderCoachBar(); renderSheet();
   }
@@ -2680,7 +2727,7 @@ function renderFix(x, sr, plan){
     }
     coach.good=0; coach.tries++; coach.why=iss[0].txt; coach.take=t;
     if(coach.tries>=5){ coachBack('Let’s leave that for now. The whole piece again'); resume(); return; }
-    if(coach.tries===3 && metro.on){ setMetroBpm(Math.max(30, Math.round(metro.bpm*0.9))); coach.slower=metro.bpm; }
+    if(coach.tries===3 && metro.on){ coach.bpm0=metro.bpm; setMetroBpm(Math.max(30, Math.round(metro.bpm*0.9))); coach.slower=metro.bpm; }
     shownTake=null; renderSheet();
     hearFixed(t, 0, t.target.notes.length-1, true, true);
   }
@@ -2803,7 +2850,7 @@ function renderFix(x, sr, plan){
     $('icon').innerHTML = ic?ICONS[ic]:'';
     stateText.textContent=label;
     if(coach.on && active){
-      if(s==='listening' && coach.full && (coach.phase==='yours' || coach.phase==='right')){ coach.phase='turn'; setTimeout(renderCoachBar,0); }
+      if((s==='listening' || s==='recording') && (coach.phase==='yours' || coach.phase==='right')){ coach.phase = coach.full ? 'turn' : 'whole'; setTimeout(renderCoachBar,0); }
       const L = (s==='playing' || s==='cooldown') && coach.phase==='yours' ? 'Yours' : (s==='playing' || s==='cooldown') && coach.phase==='right' ? 'Right'
         : s==='cooldown' ? 'Checking' : s==='listening' && coach.full ? 'Your turn' : null;
       if(L) stateText.textContent=L;
@@ -2820,14 +2867,28 @@ function renderFix(x, sr, plan){
   // so the mic is closed during playback and reopened afterwards.
   function setSession(type){ try{ if(navigator.audioSession) navigator.audioSession.type=type; }catch(e){} }
 
-  async function micOn(){
-    setSession('play-and-record');
-    stream = await navigator.mediaDevices.getUserMedia({audio:{
-      echoCancellation:false, noiseSuppression:false, autoGainControl:false }});
-    if(ac.state==='suspended') await ac.resume();
-    src = ac.createMediaStreamSource(stream);
-    src.connect(proc);
+  // One microphone at a time: a second call while it opens waits for the first. If the mic is no longer
+  // wanted when it arrives (Stop pressed meanwhile), it is closed at once. If the browser ends it (a phone
+  // call, another app taking the mic), the app tries to get it back, or stops and says so.
+  let micPending=null;
+  function micOn(){
+    if(stream) return Promise.resolve();
+    if(micPending) return micPending;
+    micPending=(async()=>{
+      setSession('play-and-record');
+      const st = await navigator.mediaDevices.getUserMedia({audio:{
+        echoCancellation:false, noiseSuppression:false, autoGainControl:false }});
+      if(stream){ st.getTracks().forEach(t=>t.stop()); return; }
+      stream=st;
+      if(ac.state==='suspended') await ac.resume();
+      src = ac.createMediaStreamSource(stream);
+      src.connect(proc);
+      st.getTracks().forEach(t=>t.addEventListener('ended',()=>{ if(stream!==st) return; micOff();
+        if(active && state!=='playing') micOn().catch(()=>{ showErr('The microphone was taken by another app. Tap Start to listen again.'); stop(); }); }));
+    })().finally(()=>{ micPending=null; });
+    return micPending;
   }
+  const micWanted=()=>active || tunerOpen || !!calib;
   function micOff(){
     try{ src && src.disconnect(); }catch(e){}
     stream && stream.getTracks().forEach(t=>t.stop());
@@ -2845,7 +2906,19 @@ function renderFix(x, sr, plan){
     proc.onaudioprocess = onAudio;
   }
 
+  document.addEventListener('visibilitychange',async()=>{
+    if(document.visibilityState!=='visible' || !active) return;
+    try{ if(ac && ac.state!=='running') await ac.resume(); }catch(e){}
+    try{ if(!wakeLock || wakeLock.released) wakeLock = await navigator.wakeLock?.request('screen'); }catch(e){}
+    if(!stream && state!=='playing') micOn().catch(()=>{ showErr('The microphone was lost. Tap Start to listen again.'); stop(); });
+  });
+  let starting=false;
   async function start(){
+    if(starting || active) return;
+    starting=true;
+    try{ await startInner(); } finally{ starting=false; }
+  }
+  async function startInner(){
     showErr('');
     ensureAC();
     await ac.resume();
@@ -2956,7 +3029,7 @@ function renderFix(x, sr, plan){
 
     const ab=ac.createBuffer(1,total,sr); ab.copyToChannel(data,0);
     const take={id:++takeCounter, buffer:ab, dur:total/sr, audioStart:recAudioStart,
-      metro: metro.on ? {bpm:metro.bpm, bpb:metro.bpb, t0:metro.t0+syncMs/1000} : null,   // (the player's sound lands syncMs after the beat)
+      metro: metro.on ? {bpm:metro.bpm, bpb:metro.bpb, t0:metro.t0+($('beatMode').value==='click' ? syncMs/1000 : 0)} : null,   // (the player's sound lands syncMs after the beat)
       target: target ? {...target} : null};
     sheetView='result';
     if(take.metro){ // the bar the take starts in, from the moment it was triggered
@@ -2979,13 +3052,17 @@ function renderFix(x, sr, plan){
       if(series && series.ids.length>=series.n && takes.filter(k=>series.ids.includes(k.id)).every(k=>k.notes)) endSeries(); },60);
   }
 
+  let playTok=0;
   async function playTake(take, times){
     stopPlayback();
+    const tok=++playTok;
+    if(micPending) try{ await micPending; }catch(e){}      // (the mic reopening: close it properly below)
+    if(tok!==playTok) return;
     setState('playing');
     // (with 'stop it when I start playing' the mic stays open to listen; on iPhone that needs headphones)
     if(stream && !$('bargeIn').checked){ micOff(); await new Promise(r=>setTimeout(r,180)); }   // let the phone switch to the speaker
     if(ac.state==='suspended') await ac.resume();
-    if(state!=='playing') return;
+    if(state!=='playing' || tok!==playTok) return;          // (another playback, or Stop, meanwhile)
     let left=times;
     let buf=take.buffer;
     if(halfSpeed && take.id!=='target'){
@@ -3007,7 +3084,7 @@ function renderFix(x, sr, plan){
       s.onended=()=>{
         if(currentSrc!==s) return;
         left--;
-        if(left>0 && state==='playing'){ setTimeout(()=>{ if(state==='playing') once(); }, metro.on?0:250); }
+        if(left>0 && state==='playing'){ setTimeout(()=>{ if(state==='playing' && tok===playTok) once(); }, metro.on?0:250); }
         else afterPlayback();
       };
     };
@@ -3015,6 +3092,7 @@ function renderFix(x, sr, plan){
   }
 
   function stopPlayback(){
+    playTok++;
     playing=null;
     if(currentSrc){ const s=currentSrc; currentSrc=null; try{s.stop()}catch(e){} }
   }
@@ -3028,6 +3106,7 @@ function renderFix(x, sr, plan){
     if(!stream){
       try{ await micOn(); }
       catch(e){ showErr('The microphone couldn’t be reopened. Tap Start to try again.'); active=false; setState('idle'); return; }
+      if(!active){ if(!micWanted()) micOff(); setState('idle'); return; }   // (Stop was pressed meanwhile)
     }
     const wait=Math.max(0, COOLDOWN-(performance.now()-t0));
     setTimeout(()=>{ if(state==='cooldown' && active){ preroll=[]; prerollLen=0; setState('listening'); } }, wait);
@@ -3112,7 +3191,7 @@ function renderFix(x, sr, plan){
       unfit = firstVal!=='auto';
       tempo = autoBpm.checked || unfit ? t.bpm : +bpm.value;
     }
-    const q=quantize(t.notes,exact||tempo,ref,t.detail||0), six=60/(exact||tempo)/4;
+    const q=quantize(t.notes,exact||tempo,ref,t.detail||0,!!t.metro), six=60/(exact||tempo)/4;
     // A note runs until the next one starts, unless the sheet has a rest after it; then until its
     // sound stops. The last note is cut at the barline on the sheet, so its length gets no verdict.
     const lens=q.map((e,i)=>{ const n=t.notes[i], legato=i<q.length-1 && e.e===q[i+1].s;
@@ -3329,7 +3408,7 @@ function renderFix(x, sr, plan){
     if(r.extra) general.push({cls:'ink', icon:'+', html:r.extra+' extra note'+(r.extra>1?'s':'')+' played'});
     if(fb.tune && played) intervalItems(played, key).forEach(x=>general.push({cls:'tune', icon:'↔', html:x.html}));
     if(tt && sameTargetTakes(tt).length>=3){
-      const S=summarize(tt), x=S.issues[0];
+      const S=summarize(tt), x=S.issues.find(y=>y.i>=0);
       if(x) general.push({cls:x.c, icon:'↻', html:'<b>Most often:</b> '+noteName(tt.notes[x.i]??0,key)+' '+x.part+' <small>('+x.n+' of '+S.K+' takes, see Summary)</small>'});
     }
     const right=r.items.filter(it=>it.status==='ok'||it.status==='tune').length;
@@ -3356,7 +3435,7 @@ function renderFix(x, sr, plan){
     if(fb.tune) items.push(...tuneItems(r.items.filter(it=>it.played && it.status!=='wrong').map(it=>({midi:it.midi, cents:it.cents})), key));
     if(fb.tune && played) items.push(...intervalItems(played, key));
     if(tt && sameTargetTakes(tt).length>=3){
-      const S=summarize(tt), x=S.issues[0];
+      const S=summarize(tt), x=S.issues.find(y=>y.i>=0);
       if(x) items.push(item(x.c, '<b>Most often</b> '+x.html.replace(/<b>|<\/b>/g,'')+' <small>'+x.n+' of '+S.K+' takes · see Summary</small>'));
     }
     return fbBox(items.slice(0,10));
@@ -3530,7 +3609,12 @@ function renderFix(x, sr, plan){
   }
   // target notes as sheet events (sixteenths): their rhythm if they have one, else quarter notes
   const tSpan=(tt,i)=> tt.durs ? [Math.round(tt.onsets[i]*4), Math.round((tt.onsets[i]+tt.durs[i])*4)] : [i*4, i*4+4];
-  function targetEvents(tt, shift=0){ return tt.notes.map((m,i)=>{ const [s,e]=tSpan(tt,i); return {midi:m+shift, s, e}; }); }
+  function targetEvents(tt, shift=0){
+    let prev=null;
+    return tt.notes.map((m,i)=>{ let [s,e]=tSpan(tt,i);
+      if(prev){ if(s<=prev.s) s=prev.s+1; if(prev.e>s) prev.e=s; }    // (triplet sixteenths, 32nds: rounded, but each drawn)
+      e=Math.max(e,s+1); return prev={midi:m+shift, s, e}; });
+  }
   const tBeats=tt=> tt && tt.meter ? tt.meter : tt && tt.durs ? metro.bpb : 4;
 
   // Rhythm of a take against a target with lengths. Tempo: the metronome's if the take was played
@@ -3559,8 +3643,20 @@ function renderFix(x, sr, plan){
     return {lens, flags, spb, off};
   }
   // (a drill on one note has no key: no key signature rather than A major for a row of A's)
-  function keyOf(midis){ if(midis.key){ const k=KEYS.find(k=>k.name===midis.key); if(k) return k; }
-    return midis.length && midis.every(m=>m%12===midis[0]%12) ? KEYS[0] : guessKey(midis.map((m,i)=>({midi:m,t0:i,t1:i+1}))); }
+  // The key of target notes: its \key, else guessed; and the notes' own spelling (each pitch class as it is
+  // most often written), so C# stays C# in D minor and the Pythagorean judging uses the written note.
+  function keyOf(midis){
+    let k = midis.key ? KEYS.find(k=>k.name===midis.key) : null;
+    if(!k) k = midis.length && midis.every(m=>m%12===midis[0]%12) ? KEYS[0] : guessKey(midis.map((m,i)=>({midi:m,t0:i,t1:i+1})));
+    const names=midis.names; if(!names || !names.length) return k;
+    const cnt={};
+    names.forEach((nm,i)=>{ const mm=/^([A-G])(#+|b+)?/.exec(nm||''); if(!mm || midis[i]===undefined) return;
+      const a=mm[2] ? (mm[2][0]==='#'?1:-1)*mm[2].length : 0, pc=((midis[i]%12)+12)%12, w=mm[1]+','+a;
+      (cnt[pc]=cnt[pc]||{})[w]=(cnt[pc][w]||0)+1; });
+    const sp={}; for(const pc in cnt){ const w=Object.entries(cnt[pc]).sort((x,y)=>y[1]-x[1])[0][0].split(','); sp[pc]=[w[0], +w[1]]; }
+    return {...k, sp};
+  }
+  const keyName=k=>{ const x=k && KEYS.find(y=>y.name===k.name); return x ? x.name : null; };
 
   // ---- your take, corrected (renderFix): target items a..b, or the take's own notes a..b ----
   // With target notes: each note at its written place and length (at the take's tempo), at the right
@@ -3593,6 +3689,7 @@ function renderFix(x, sr, plan){
   async function hearFixed(t, a, b, withYours, forCoach){
     if(!t || !t.notes || !t.notes.length || state==='recording') return;
     ensureAC(); try{ await ac.resume(); }catch(e){} anchorClock();
+    if(state==='recording') return;
     const x=t.buffer.getChannelData(0), sr=t.buffer.sampleRate, plan=fixPlan(t, a, b);
     if(!plan.length) return;
     const parts=[];
@@ -3642,13 +3739,14 @@ function renderFix(x, sr, plan){
       [o1,o2,lfo].forEach(o=>{ o.start(t); o.stop(t+d+0.05); });
     });
     const rendered=await oc.startRendering();
+    if(state==='recording') return;
     playTake({id:'target', buffer:rendered, beat, onsets}, 1);
   }
   $('sheet').addEventListener('click',e=>{ const b=e.target.closest('.hear'); if(!b) return;
     const t=shownTake && shownTake.target && sheetView==='result' ? shownTake.target : target;
     if(!t) return;
     let notes=t.notes;
-    if(shownTake && shownTake.target && shownTake.notes){ const r=alignTarget(t.notes, shownTake.notes, t.hasOct); notes=t.notes.map(m=>m+r.shift); }
+    if(shownTake && shownTake.target && shownTake.notes){ const r=alignTarget(t.notes, shownTake.notes, t.hasOct); notes=Object.assign(t.notes.map(m=>m+r.shift), {key:t.notes.key, names:t.notes.names}); }
     hearTarget(notes, t.durs, t.onsets);
   });
   const PLAYSVG='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>';
@@ -3683,9 +3781,9 @@ function renderFix(x, sr, plan){
   function renderResult(t){
     $('firstnote').hidden=true;
     $('sheetMeta').innerHTML=segHTML(t);
-    const tt=t.target, r=judge(alignTarget(tt.notes, t.notes, tt.hasOct), keyOf(tt.notes.map(m=>m)));
+    const tt=t.target, r=judge(alignTarget(tt.notes, t.notes, tt.hasOct), keyOf(tt.notes));
     if(!fb.tune) r.items.forEach(it=>{ if(it.status==='tune') it.status='ok'; });
-    const key=keyOf(r.items.map(x=>x.midi));
+    const key=keyOf(tt.notes);
     const R=fb.rhythm ? targetRhythm(t, r) : null;
     if(R && R.spb) lastTargetSpb[tt.str]=R.spb;
     const FX=targetFix(r, key, R, t.notes, tt);
@@ -3864,7 +3962,7 @@ function renderFix(x, sr, plan){
       seq.push({midi:e.midi, name:L+(a>0?'#':a<0?'b':'')+oct}); durs.push((e.e-e.s)/4);
     });
     if(q.length && q[0].s%(beats*4)){ seq.unshift({rest:true}); durs.unshift((q[0].s%(beats*4))/4); }   // where the first bar starts
-    return compactTarget(seq, durs, {meter:beats+'/4', key:KEYS.includes(t.key) ? t.key.name : null});
+    return compactTarget(seq, durs, {meter:beats+'/4', key:keyName(t.key)});
   }
   function takeAsTarget(t){
     if(!t.notes || !t.notes.length) return;
@@ -4018,7 +4116,7 @@ function renderFix(x, sr, plan){
   // clock a little ahead, accent on the downbeat ----
   let clickedUpTo=-1;
   function scheduleClicks(){
-    if(!metro.on || $('beatMode').value!=='click' || !ac || !clockReady || ac.state!=='running') return;
+    if(!metro.on || ($('beatMode').value!=='click' && !calib) || !ac || !clockReady || ac.state!=='running') return;   // (measuring Sync always clicks)
     const now=ac.currentTime, bl=beatLen();
     let k=Math.max(clickedUpTo+1, Math.ceil((now-metro.t0)/bl));
     for(; metro.t0+k*bl < now+0.12; k++){
@@ -4046,6 +4144,7 @@ function renderFix(x, sr, plan){
   async function measureSync(){
     if(calib) return;
     if(active){ toast('Stop listening first'); return; }
+    if(tunerOpen) await openTuner(false);
     ensureAC(); try{ await ac.resume(); }catch(e){} anchorClock();
     try{ if(!stream) await micOn(); }catch(e){ toast('The microphone is needed to measure'); return; }
     const was={on:metro.on, t0:metro.t0}, bl=beatLen();
