@@ -679,6 +679,52 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
 // ---- Transcription: one note at a time ----
 // detail: 0 = clean (short slips absorbed relative to the take's own note lengths), 1 = normal,
 // 2 = detailed (every note from 70 ms)
+// In-place radix-2 FFT (re, im: length a power of two)
+function fft(re, im){
+  const n=re.length;
+  for(let i=1,j=0;i<n;i++){ let bit=n>>1; for(;j&bit;bit>>=1) j^=bit; j^=bit; if(i<j){ let t=re[i]; re[i]=re[j]; re[j]=t; t=im[i]; im[i]=im[j]; im[j]=t; } }
+  for(let len=2;len<=n;len<<=1){
+    const ang=-2*Math.PI/len, wr=Math.cos(ang), wi=Math.sin(ang), h=len>>1;
+    for(let i=0;i<n;i+=len){ let cr=1, ci=0;
+      for(let j=0;j<h;j++){ const k=i+j+h, ar=re[k]*cr-im[k]*ci, ai=re[k]*ci+im[k]*cr;
+        re[k]=re[i+j]-ar; im[k]=im[i+j]-ai; re[i+j]+=ar; im[i+j]+=ai; const t=cr*wr-ci*wi; ci=cr*wi+ci*wr; cr=t; } }
+  }
+}
+// How much a note's partials wobble (vibrato), in cents: for each harmonic k of f0, the exact frequency of its
+// peak is followed through the note (Hann window ~45 ms, every 20 ms, zero-padded, parabolic peak); its
+// spread around a straight line is the wobble, and how often it swings is its rate (vibrato: 4-8 a second;
+// two near partials beating, e.g. a ringing string's under the note's, swing much more slowly).
+// Returns {k: {c: cents, hz: rate}} for the harmonics that were clearly there.
+function partialWobble(data, sr, t0, t1, f0, ks){
+  const N=1<<Math.round(Math.log2(sr*0.045)), M=N*4, out={}, series={}; ks.forEach(k=>series[k]=[]);
+  const win=new Float64Array(N); for(let i=0;i<N;i++) win[i]=0.5-0.5*Math.cos(2*Math.PI*i/(N-1));
+  for(let t=t0; t+N/sr<=t1; t+=0.02){
+    const st=Math.round(t*sr); if(st+N>data.length) break;
+    const re=new Float64Array(M), im=new Float64Array(M);
+    for(let i=0;i<N;i++) re[i]=data[st+i]*win[i];
+    fft(re,im);
+    const mag=k=>Math.hypot(re[k],im[k]);
+    for(const k of ks){
+      const F=f0*k, lo=Math.floor(F*Math.pow(2,-90/1200)*M/sr), hi=Math.ceil(F*Math.pow(2,90/1200)*M/sr);
+      if(hi>=M/2-1) continue;
+      let b=lo; for(let q=lo;q<=hi;q++) if(mag(q)>mag(b)) b=q;
+      // a real peak: well above the spectrum around it (two semitones either side)
+      const around=[]; for(let q=Math.floor(F*0.89*M/sr); q<=Math.ceil(F*1.12*M/sr); q+=2) around.push(mag(q)); around.sort((x,y)=>x-y);
+      if(mag(b) < 4*around[around.length>>1] || b<=lo || b>=hi) continue;
+      const y0=Math.log(mag(b-1)+1e-12), y1=Math.log(mag(b)+1e-12), y2=Math.log(mag(b+1)+1e-12), d=y0-2*y1+y2;
+      const kb=b+(d!==0 ? 0.5*(y0-y2)/d : 0);
+      series[k].push([t, 1200*Math.log2(kb*sr/M/F)]);
+    }
+  }
+  for(const k of ks){ const S=series[k]; if(S.length<8) continue;
+    const n=S.length, mt=S.reduce((a,v)=>a+v[0],0)/n, mc=S.reduce((a,v)=>a+v[1],0)/n;
+    let sxy=0, sxx=0; S.forEach(([t,c])=>{ sxy+=(t-mt)*(c-mc); sxx+=(t-mt)**2; }); const sl=sxx>0?sxy/sxx:0;
+    const res=S.map(([t,c])=>c-mc-sl*(t-mt)), sd=Math.sqrt(res.reduce((a,v)=>a+v*v,0)/n);
+    let cross=0, sign=0; for(const v of res){ if(Math.abs(v)<sd*0.3) continue; const sg=v>0?1:-1; if(sign && sg!==sign) cross++; sign=sg; }
+    out[k]={c:sd, hz:cross/2/Math.max(0.05,S[n-1][0]-S[0][0])};
+  }
+  return out;
+}
 function detectNotes(data, sr, A4, detail=0, low=28){
   A4=A4||440;
   const factor=Math.max(1,Math.round(sr/11025)), fs=sr/factor;
@@ -847,6 +893,19 @@ function detectNotes(data, sr, A4, detail=0, low=28){
         for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && Math.abs(pitch[f]-o.midi)<0.8) pitch[f]+=k;
         o.midi=m; break;
       }
+    }
+    // Vibrato tells a stopped note from the open string ringing under it: a note read at an open string's
+    // pitch whose shared partials (2nd, 4th: also the octave above's) wobble while its own odd ones (1st, 3rd,
+    // 5th) hold steady is two sounds, the played note an octave up over the ringing string. (A real open
+    // string has no vibrato at all; a stopped note with vibrato wobbles in every partial.)
+    for(const o of notes){
+      if(!open.includes(o.midi) || o.b-o.a<35) continue;     // (a held note: vibrato takes a moment to show)
+      const f0=A4*Math.pow(2,(o.midi-69)/12), w=partialWobble(data, sr, (o.a+3)*hop/fs, (o.b-3)*hop/fs+W/fs, f0, [1,2,3,4,5]);
+      const md=a=>{ const v=a.filter(x=>x!==undefined).sort((p,q)=>p-q); return v.length ? v[v.length>>1] : null; };
+      const ev=md([w[2],w[4]].filter(Boolean).map(x=>x.c)), od=md([w[1],w[3],w[5]].filter(Boolean).map(x=>x.c)), rate=md([w[2],w[4]].filter(Boolean).map(x=>x.hz));
+      if(ev===null || od===null || ev<8 || od>ev*0.35 || !(rate>=3.5 && rate<=9)) continue;
+      for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && Math.abs(pitch[f]-o.midi)<0.8) pitch[f]+=12;
+      o.midi+=12;
     }
     for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6 && !notes[i].art){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; } }
   }

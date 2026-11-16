@@ -113,7 +113,11 @@ neighbours, which an octave or two up lies on the line between them (D4 [G3] B4 
 up when the sound repeats there; without this the clean-up took a real D5 for an octave+fifth slip of the
 ringing G3 (report take221, quick arpeggio). Re-bowed repeated notes split on a dip below the note's median
 level, or below a third of the note just before it when the new note then holds at 35%+ of that peak for
-0.15 s (a soft second D after a loud first one; a fading note that only swells doesn't split). Note times: a note
+0.15 s (a soft second D after a loud first one; a fading note that only swells doesn't split). Vibrato: a held note (0.35 s+) read at an open string's
+pitch whose shared partials (2nd, 4th) wobble at a vibrato rate (3.5-9 Hz, 8+ cents) while its own odd partials
+(1st, 3rd, 5th) hold steady is the stopped note an octave up over the ringing string (`partialWobble`: FFT
+peaks followed through the note). A real open string has no vibrato; a stopped note wobbles in every partial;
+slow beating between a note's partial and the ringing string's (D4 2nd vs G3 3rd) is not vibrato. Note times: a note
 starts at its own attack (frames before an attack in its first 0.12 s go to the previous note), and a gap of
 up to 0.15 s of continuing sound between two notes (a slur, unclear frames) is shared between them.
 `guessTempo` discourages tempos over 140 more firmly (even notes 0.3 s apart: eighths at ~100). Limitation: a G3 as loud as
