@@ -295,6 +295,10 @@ body:not(.allset) .set.adv{display:none !important}
 .sightbar .tx small{display:block; color:var(--muted); font-size:.78rem}
 .sightbar button{height:36px; padding:0 14px; border-radius:10px; border:none; background:var(--play); color:#fff; font-weight:600}
 .genhint{color:var(--muted); font-size:.78rem; margin-top:6px}
+.lyhint{margin:-2px 0 10px}
+.lyhint code{font-size:.85em; background:var(--line); padding:0 4px; border-radius:4px}
+.hearrow{display:flex; flex-wrap:wrap; align-items:center; gap:0 8px}
+.hearrow .share{margin-top:10px}
 .ear-wait{text-align:center; padding:22px 8px 10px; color:var(--muted)}
 .ear-wait b{display:block; color:var(--ink); font-size:1.05rem; font-weight:600; margin-bottom:4px}
 .genrow select,.genrow button{font:inherit; font-size:.86rem; height:36px; padding:0 8px; border-radius:10px; border:1px solid var(--line2); background:var(--surface); color:var(--ink)}
@@ -499,10 +503,11 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
       <div class="panel tpanel" id="statsPanel" hidden></div>
       <div class="panel tpanel" id="targetPanel" hidden>
         <label for="targetIn">Notes to play</label>
-        <input id="targetIn" placeholder="G3 A B C4 D E F# G" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
+        <input id="targetIn" placeholder="g4 a b c d e fis g" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
         <input id="targetName" placeholder="Name, to save it" autocomplete="off" enterkeyhint="done">
         <div class="btns"><button class="primary" id="targetUse">Use</button><button id="targetSave">Save</button><button id="targetLink" aria-label="Share these notes as a link">Link</button><button id="targetClear">Clear</button></div>
         <div class="perr" id="targetErr"></div>
+        <div class="genhint lyhint">LilyPond notes: <code>g4 a8 b c'2.</code> · fis = F♯, bes = B♭ · ' and , = octave up / down · r = rest · ~ tie · | bar</div>
         <div class="gen">
           <div class="genlab">Scale or arpeggio</div>
           <div class="genrow">
@@ -1161,31 +1166,182 @@ function makeScale(pc, type, octaves, low){
   }
   return seq;
 }
-// Notes as target text, octave numbers only where the nearest octave would be wrong: G3 A B C D ...
-// durs (beats per note, optional) are written as :n where they change.
-function compactTarget(seq, durs){
-  let prev=null, pd=null;
-  return seq.map((x,i)=>{
-    if(x.rest){ let tok='r'; if(durs && durs[i]!==pd){ tok+=':'+(+durs[i].toFixed(3)); pd=durs[i]; } return tok; }
-    const base=x.name.replace(/-?\d+$/,'');
-    let tok=x.name;
-    if(prev!==null && parseTarget(prev+' '+base).notes[1]===x.midi) tok=base;
-    prev=x.name;
-    if(durs && durs[i]!==pd){ tok+=':'+(+durs[i].toFixed(3)); pd=durs[i]; }
-    return tok;
-  }).join(' ');
+// ---- Target notes in LilyPond notation ----
+// \relative { \time 3/4 \key d \major r2 a'4 | d e8 fis g4 | a2.~ | a4 r b }
+// Notes c d e f g a b, sharps -is, flats -es (es, as; f# and bb also read), octaves ' and ,
+// (relative: each note within a fourth of the one before), lengths 1 2 4 8 16 32 with dots,
+// carried over until they change; r = rest, ~ ties, \tuplet 3/2 { }, <chords> (top note kept),
+// | bar checks, \time, \key, \partial. Without any lengths the target is notes only (no rhythm).
+// Plain notes without \relative or braces are read relative, the first one in octave 4
+// (as \relative f'), and leave the octave free when judging. Slurs, articulations, dynamics,
+// fingerings and clefs are allowed and ignored.
+const LY_STEP='cdefgab', LY_NAT=[0,2,4,5,7,9,11];
+const lyBeats=m=>{ const [n,d]=m.split('/'); return n.split('+').reduce((a,x)=>a+ +x,0)*4/+d; };
+function parseLy(src){
+  const s=src.replace(/%\{[\s\S]*?%\}/g,' ').replace(/%[^\n]*/g,' ');
+  const notes=[], names=[], durs=[], onsets=[], checks=[], scopes=[];
+  let i=0, pos=0, dur=1, timed=false, hasOct=false, meter=null, factor=1, pendingTuplet=null;
+  let mode = /[{}]|\\relative|\\fixed/.test(s) ? 'abs' : 'rel', prevD = mode==='rel' ? 4*7+3 : null, fixedO=0;
+  let tie=false, chord=null, tempo=0;
+  const at=re=>{ re.lastIndex=i; const m=re.exec(s); if(m) i=re.lastIndex; return m; };
+  const ws=()=>at(/\s*/y);
+  const bad=()=>{ const m=/\S+/y; m.lastIndex=i; const t=m.exec(s); return {error:t?t[0]:s.slice(i,i+8)}; };
+  const ACC={'':0,is:1,isis:2,es:-1,eses:-2,'#':1,'##':2,x:2,'♯':1,'♭':-1,b:-1,bb:-2};
+  const pitch=()=>{   // -> {L, acc, marks, check} or null
+    const m=at(/([a-g])([a-z#♯♭]*)([',]*)[!?]?(?:=([',]*))?/y); if(!m) return null;
+    let a=m[2]; if((m[1]==='e'||m[1]==='a') && a[0]==='s') a='e'+a;
+    if(!(a in ACC)) return {bad:true};
+    const mk=x=>x ? (x.match(/'/g)||[]).length-(x.match(/,/g)||[]).length : 0;
+    return {L:LY_STEP.indexOf(m[1]), acc:ACC[a], marks:mk(m[3]), marked:!!m[3], check:m[4]!==undefined ? mk(m[4]) : null};
+  };
+  const place=p=>{     // diatonic number (octave*7 + step) under the current mode
+    let D;
+    if(mode==='fixed') D=(fixedO+p.marks)*7+p.L;
+    else if(mode==='abs' || prevD===null) D=(3+p.marks)*7+p.L;
+    else { let d=((p.L-prevD%7)%7+7)%7; if(d>3) d-=7; D=prevD+d+7*p.marks; }
+    if(p.check!==null) D=(3+p.check)*7+p.L;
+    if(mode!=='fixed') prevD=D;
+    if(p.marked || mode!=='rel' || p.check!==null) hasOct=true;
+    const o=Math.floor(D/7);
+    return {midi:(o+1)*12+LY_NAT[p.L]+p.acc, name:LY_STEP[p.L].toUpperCase()+(p.acc>0?'#'.repeat(p.acc):'b'.repeat(-p.acc))+o};
+  };
+  const duration=()=>{  // optional length in beats, or undefined
+    let m=at(/\\breve(\.*)/y), v;
+    if(m) v=8*(2-Math.pow(.5,m[1].length));
+    else { m=at(/(\d+)(\.*)/y); if(!m) return undefined;
+      const n=+m[1]; if(![1,2,4,8,16,32,64,128].includes(n)) return NaN;
+      v=4/n*(2-Math.pow(.5,m[2].length)); }
+    const mul=at(/\*(\d+)(?:\/(\d+))?/y); if(mul) v*=+mul[1]/(mul[2]?+mul[2]:1);
+    return v;
+  };
+  const length=()=>{ const d=duration(); if(d===undefined) return dur*factor; if(!(d>0)) return NaN; timed=true; dur=d; return d*factor; };
+  const addNote=(n,len)=>{
+    const k=notes.length-1;
+    if(tie && k>=0 && notes[k]===n.midi && Math.abs(onsets[k]+durs[k]-pos)<1e-9){ durs[k]+=len; }
+    else { notes.push(n.midi); names.push(n.name); onsets.push(pos); durs.push(len); }
+    tie=false; pos=Math.round((pos+len)*1e9)/1e9;
+  };
+  const skipBlock=()=>{ ws(); if(s[i]!=='{') return; let depth=0; for(; i<s.length; i++){ if(s[i]==='{') depth++; else if(s[i]==='}' && --depth===0){ i++; return; } } };
+  while(ws(), i<s.length){
+    const c=s[i];
+    if(c==='\\'){
+      const m=at(/\\([a-zA-Z]+|[<>!()\[\]\\])/y); if(!m) return bad();
+      const cmd=m[1];
+      if(cmd==='\\') return {error:'\\\\ (only one voice can be read)'};
+      if(cmd==='relative'){ mode='rel'; ws(); const p=pitch(); if(p&&p.bad) return bad(); prevD=p ? (3+p.marks)*7+p.L : null; hasOct=true; }
+      else if(cmd==='fixed'){ ws(); const p=pitch(); if(!p||p.bad) return bad(); mode='fixed'; fixedO=3+p.marks; hasOct=true; }
+      else if(cmd==='time'){ ws(); const t=at(/(?:\d+,)*\d+\s+/y); const m2=at(/(\d+(?:\+\d+)*)\/(\d+)/y); if(!m2) return bad(); meter=m2[1]+'/'+m2[2]; }
+      else if(cmd==='key'){ ws(); const p=pitch(); if(!p||p.bad) return bad(); ws(); const md=at(/\\(major|minor|ionian|aeolian|dorian|phrygian|lydian|mixolydian|locrian)/y);
+        const pc=((LY_NAT[p.L]+p.acc+((md&&/minor|aeolian/.test(md[1]))?3:0))%12+12)%12;
+        const k=(!md || /major|minor|ionian|aeolian/.test(md[1])) && KEYS.find(k=>k.pc===pc); if(k) notes.key=k.name; else delete notes.key; }
+      else if(cmd==='tuplet' || cmd==='times'){ ws(); const m2=at(/(\d+)\/(\d+)/y); if(!m2) return bad(); ws(); at(/\d+\.*\s*/y);
+        pendingTuplet = cmd==='tuplet' ? +m2[2]/+m2[1] : +m2[1]/+m2[2]; }
+      else if(cmd==='partial'){ ws(); const d=duration(); if(!(d>0)) return bad(); if(!notes.length && pos===0){ pos=Math.max(0,lyBeats(meter||'4/4')-d); timed=true; } }
+      else if(cmd==='clef'||cmd==='bar'||cmd==='version'||cmd==='mark'||cmd==='new'||cmd==='context'){ ws(); at(/"(?:[^"\\]|\\.)*"|\\?[A-Za-z_.^-]+/y); if(cmd==='new'||cmd==='context'){ ws(); if(at(/=\s*/y)) at(/"(?:[^"\\]|\\.)*"|[A-Za-z]+/y); } }
+      else if(cmd==='tempo'){ ws(); at(/"(?:[^"\\]|\\.)*"\s*/y); const m2=at(/(\d+)(\.*)\s*=\s*(\d+)(?:\s*-\s*\d+)?/y);
+        if(m2 && !tempo) tempo=Math.round(+m2[3]*4/+m2[1]*(2-Math.pow(.5,m2[2].length))); }
+      else if(cmd==='repeat'){ ws(); at(/[a-z]+\s*\d*/y); }
+      else if(cmd==='header'||cmd==='layout'||cmd==='midi'||cmd==='paper'||cmd==='with') skipBlock();
+      else if(cmd==='transpose'||cmd==='override'||cmd==='set') return {error:'\\'+cmd};
+      // anything else (\p \f \staccato \fermata \score \major ...) carries no notes
+      continue;
+    }
+    if(c==='{'){ i++; scopes.push(pendingTuplet||1); factor*=pendingTuplet||1; pendingTuplet=null; continue; }
+    if(c==='}'){ i++; factor/=scopes.pop()||1; continue; }
+    if(s.startsWith('<<',i) || s.startsWith('>>',i)){ i+=2; continue; }
+    if(c==='<'){ i++; chord=[]; continue; }
+    if(c==='>' && chord){ i++; const len=length(); if(!(len>0)) return bad();
+      if(chord.length){ const top=chord.reduce((a,b)=>b.midi>a.midi?b:a); addNote(top,len); prevD=chord.firstD; } else pos+=len;
+      chord=null; continue; }
+    if(c==='|'){ i++; checks.push(pos); continue; }
+    if(c==='~'){ i++; tie=true; continue; }
+    if('()[]'.includes(c)){ i++; continue; }
+    if(c==='"'){ if(!at(/"(?:[^"\\]|\\.)*"/y)) return bad(); continue; }
+    if('-^_'.includes(c)){ if(!at(/[-^_](?:[.>^_!+-]|\d+|"(?:[^"\\]|\\.)*"|\\[a-zA-Z]+)/y)) return bad(); continue; }
+    if(/[rRs]/.test(c) && !/[a-z]/.test(s[i+1]||'')){ i++; const len=length(); if(!(len>0)) return bad(); pos+=len; tie=false; continue; }
+    const st0=i, p=pitch();
+    if(!p || p.bad){ i=st0; return bad(); }
+    if(chord){ const n=place(p); if(!chord.length) chord.firstD=prevD; chord.push(n); continue; }
+    const start=i, n=place(p), len=length(); if(!(len>0)){ i=start; return bad(); }
+    addNote(n,len);
+  }
+  if(!timed) checks.length=0;
+  // bar lines without \time: the bars they mark are the meter (a shorter first bar is a pickup)
+  if(timed && !meter && checks.length){
+    const d=checks.map((x,k)=>k ? x-checks[k-1] : x), b = checks.length>1 ? d[1] : d[0];
+    if(b>0 && b<=12 && (b*2)%1===0 && d.slice(1).every(x=>Math.abs(x-b)<1e-6) && d[0]<=b+1e-6){
+      meter = b%1===0 ? b+'/4' : (b*2)+'/8';
+      const sh=b-d[0]; if(sh>1e-6){ for(let k=0;k<onsets.length;k++) onsets[k]+=sh; for(let k=0;k<checks.length;k++) checks[k]+=sh; }
+    }
+  }
+  return {notes, names, hasOct, durs: timed?durs:null, onsets: timed?onsets:null, meter: timed?meter:null, checks, tempo};
+}
+// Either notation: LilyPond, or the old one (converted when it is stored)
+function parseTarget(str){
+  if(isOldTarget(str)){ const o=parseOldTarget(str); if(!o.error) return o; }
+  const t=parseLy(str);
+  if(t.error){ const o=parseOldTarget(str); if(!o.error) return o; }
+  return t;
+}
+const lyName=nm=>{ const m=nm.match(/^([A-G])(#+|b+)?/), acc=m[2]||'', L=m[1].toLowerCase(), a=acc[0]==='#' ? acc.length : -acc.length;
+  if(a<0 && (L==='e'||L==='a')) return L+'s'+'es'.repeat(-a-1);
+  return L+(a>0?'is'.repeat(a):'es'.repeat(-a)); };
+// Notes as LilyPond: o = {notes, names, durs, onsets, meter, key, bare}. Lengths are written where
+// they change, notes across a barline are tied (with a meter), bare = plain relative notes
+// (octave left free) instead of \relative { }.
+function writeLy(o){
+  if(!o.notes.length) return '';
+  const out=[];
+  if(o.meter) out.push('\\time '+o.meter);
+  if(o.key){ const k=KEYS.find(k=>k.name===o.key); if(k) out.push('\\key '+lyName(k.name)+' \\major'); }
+  let prevD = o.bare ? 4*7+3 : null;
+  const D=i=>{ const nm=o.names&&o.names[i]; const m=nm && nm.match(/^([A-G])(#+|b+)?(-?\d+)$/);
+    if(m) return +m[3]*7+'CDEFGAB'.indexOf(m[1]);
+    const sp=spell(o.notes[i], KEYS[0]); return sp.oct*7+'CDEFGAB'.indexOf(sp.L); };
+  const nameOf=i=>{ const nm=o.names&&o.names[i]; if(nm && /^[A-G]/.test(nm)) return nm; const sp=spell(o.notes[i],KEYS[0]); return sp.L+(sp.a>0?'#':sp.a<0?'b':'')+sp.oct; };
+  const pitch=i=>{ const d=D(i); let marks;
+    if(prevD===null) marks=Math.floor(d/7)-3;
+    else { let st=((d%7-prevD%7)%7+7)%7; if(st>3) st-=7; marks=(d-(prevD+st))/7; }
+    prevD=d; return lyName(nameOf(i))+(marks>0?"'".repeat(marks):",".repeat(-marks)); };
+  if(!o.durs) o.notes.forEach((m,i)=>out.push(pitch(i)));
+  else {
+    const bar=o.meter ? lyBeats(o.meter) : 0, VAL=[[6,'1.'],[4,'1'],[3.5,'2..'],[3,'2.'],[2,'2'],[1.75,'4..'],[1.5,'4.'],[1,'4'],[0.75,'8.'],[0.5,'8'],[0.375,'16.'],[0.25,'16'],[0.125,'32']];
+    let pos=0, last=null;
+    const emit=(len,first,rest)=>{
+      let p=first;
+      while(len>1e-6){
+        const room = bar ? bar-(pos%bar) : Infinity, v=VAL.find(x=>x[0]<=Math.min(len,room)+1e-6);
+        if(!v){ pos+=len; break; }
+        len-=v[0]; pos+=v[0];
+        out.push(p+(v[1]===last?'':v[1])+(!rest && len>1e-6?'~':'')); last=v[1];
+        p = rest ? 'r' : p.replace(/[',]+$/,'');
+        if(bar && Math.abs(pos/bar-Math.round(pos/bar))<1e-6) out.push('|');
+      }
+    };
+    o.notes.forEach((m,i)=>{
+      if(o.onsets[i]>pos+1e-6) emit(o.onsets[i]-pos, 'r', true);
+      emit(o.durs[i], pitch(i), false);
+    });
+    while(out[out.length-1]==='|') out.pop();
+  }
+  return o.bare ? out.join(' ') : '\\relative { '+out.join(' ')+' }';
+}
+const oldToLy=str=>{ const t=parseOldTarget(str); return t.error ? str : writeLy({notes:t.notes, names:t.names, durs:t.durs, onsets:t.onsets, meter:t.meter, key:t.notes.key, bare:!t.hasOct}); };
+// seq = [{midi, name} | {rest:true}], durs in beats (optional), opts {meter, key}
+function compactTarget(seq, durs, opts={}){
+  const notes=[], names=[], d=[], on=[]; let pos=0;
+  seq.forEach((x,i)=>{ const len=durs?durs[i]:1; if(!x.rest){ notes.push(x.midi); names.push(x.name); on.push(pos); d.push(len); } pos+=len; });
+  return writeLy({notes, names, durs:durs?d:null, onsets:durs?on:null, meter:opts.meter, key:opts.key});
 }
 
-// ---- Target: notes typed by the player ----
-// "G3 A B C4 D E F# G": a missing octave means the nearest one to the previous note.
-// A length in beats can follow a note or a rest (r): G3:2 = half note, A:0.5 or A:1/2 = eighth,
-// r:1 = quarter rest. A length carries over to the following notes until it changes. Without any
-// lengths the target is notes only (no rhythm). Optional M:3/4 (time signature) and K:D (key
-// signature, major keys C G D A E F Bb Eb Ab) come from imported pieces.
-function parseTarget(str){
+// The app's first notation, still read (old exercises, links, backups) and converted to LilyPond:
+// "G3 A B C4 D E F# G", a missing octave = nearest to the previous note; :beats lengths carried
+// over (G3:2, A:1/2, r:1); optional M:3/4 and K:D.
+const isOldTarget=str=>/(^|\s)[A-G]|:/.test(str) && !/[\\{}]/.test(str);
+function parseOldTarget(str){
   const toks=str.replace(/[,|]/g,' ').trim().split(/\s+/).filter(Boolean);
   const PC={C:0,D:2,E:4,F:5,G:7,A:9,B:11};
-  const notes=[], durs=[], onsets=[]; let hasOct=false, prev=null, dur=1, pos=0, timed=false, meter=null;
+  const notes=[], names=[], durs=[], onsets=[]; let hasOct=false, prev=null, dur=1, pos=0, timed=false, meter=null;
   const len=x=>{ if(x===undefined) return dur; const v=x.includes('/') ? +x.split('/')[0]/+x.split('/')[1] : +x; return v>0 ? v : NaN; };
   for(const tok of toks){
     const mt=tok.match(/^M:(\d+)(?:\/(\d+))?$/);
@@ -1205,8 +1361,9 @@ function parseTarget(str){
     else if(prev===null) midi=60+base+acc;
     else { let best=null; for(let o=0;o<9;o++){ const c=(o+1)*12+base+acc; if(best===null || Math.abs(c-prev)<Math.abs(best-prev) || (Math.abs(c-prev)===Math.abs(best-prev) && c>best)) best=c; } midi=best; }
     notes.push(midi); prev=midi;
+    const L=m[1].toUpperCase(); names.push(L+(acc>0?'#'.repeat(acc):'b'.repeat(-acc))+(Math.round((midi-PC[L]-acc)/12)-1));
   }
-  return {notes, hasOct, durs: timed?durs:null, onsets: timed?onsets:null, meter: timed?meter:null};
+  return {notes, names, hasOct, durs: timed?durs:null, onsets: timed?onsets:null, meter: timed?meter:null};
 }
 
 // ---- MusicXML import ----
@@ -1337,7 +1494,41 @@ function pieceTarget(part, a, b){
   }
   if(!seq.some(x=>!x.rest)) return '';
   const bar=part.bars[a], k=FIFTHS_KEY[bar.fifths];
-  return 'M:'+bar.meter+(k?' K:'+k:'')+' '+compactTarget(seq, durs);
+  return compactTarget(seq, durs, {meter:bar.meter, key:k});
+}
+
+// Notes as a MusicXML score: o = {title, part, ev:[{midi, s, e, name?}] in sixteenths, key (KEYS),
+// meter '3/4', clef treble|bass|alto|tenor, bpm}. Rests fill the gaps, notes are tied across barlines.
+function toMusicXML(o){
+  const esc=x=>String(x).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+  const [bn,bt]=o.meter.split('/'), BAR=Math.round(bn.split('+').reduce((a,x)=>a+ +x,0)*16/+bt)||16;
+  const fifths=(o.key.flat?-1:1)*Object.keys(o.key.sig).length;
+  const CL={treble:['G',2],bass:['F',4],alto:['C',3],tenor:['C',4]}[o.clef]||['G',2];
+  const VAL=[[16,'whole',0],[12,'half',1],[8,'half',0],[6,'quarter',1],[4,'quarter',0],[3,'eighth',1],[2,'eighth',0],[1,'16th',0]];
+  const ev=o.ev.map(e=>({...e, s:Math.round(e.s), e:Math.round(e.e)})).sort((a,b)=>a.s-b.s);
+  ev.forEach((e,i)=>{ if(ev[i+1]) e.e=Math.min(e.e, ev[i+1].s); e.e=Math.max(e.e, e.s+1); });
+  const end=Math.max(BAR, Math.ceil((ev.length?ev[ev.length-1].e:0)/BAR)*BAR), bars=[...Array(end/BAR)].map(()=>[]);
+  // a first note after the start of the first bar: a pickup bar (implicit, numbered 0)
+  const pick = ev.length && ev[0].s>0 && ev[0].s<BAR && ev.length>1 ? ev[0].s : 0;
+  let pos=pick;
+  const put=(len,e)=>{ let first=true;
+    while(len>0){ const v=VAL.find(x=>x[0]<=Math.min(len, BAR-pos%BAR));
+      len-=v[0]; bars[Math.floor(pos/BAR)].push({v, e, stop:!!e && !first, start:!!e && len>0}); pos+=v[0]; first=false; } };
+  for(const e of ev){ if(e.s>pos) put(e.s-pos,null); if(e.s<pos) continue; put(e.e-e.s,e); }
+  if(end>pos) put(end-pos,null);
+  const pitch=e=>{ const m=(e.name||'').match(/^([A-G])(#+|b+)?(-?\d+)$/);
+    let step, alter, oct; if(m){ step=m[1]; alter=m[2]?(m[2][0]==='#'?1:-1)*m[2].length:0; oct=+m[3]; }
+    else { const sp=spell(e.midi,o.key); step=sp.L; alter=sp.a; oct=sp.oct; }
+    return '<pitch><step>'+step+'</step>'+(alter?'<alter>'+alter+'</alter>':'')+'<octave>'+oct+'</octave></pitch>'; };
+  const note=x=>'<note>'+(x.e?pitch(x.e):'<rest/>')+'<duration>'+x.v[0]+'</duration>'+(x.stop?'<tie type="stop"/>':'')+(x.start?'<tie type="start"/>':'')
+    +'<voice>1</voice><type>'+x.v[1]+'</type>'+(x.v[2]?'<dot/>':'')
+    +(x.stop||x.start?'<notations>'+(x.stop?'<tied type="stop"/>':'')+(x.start?'<tied type="start"/>':'')+'</notations>':'')+'</note>';
+  const head='<attributes><divisions>4</divisions><key><fifths>'+fifths+'</fifths></key><time><beats>'+bn+'</beats><beat-type>'+bt+'</beat-type></time><clef><sign>'+CL[0]+'</sign><line>'+CL[1]+'</line></clef></attributes>'
+    +(o.bpm?'<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>'+o.bpm+'</per-minute></metronome></direction-type><sound tempo="'+o.bpm+'"/></direction>':'');
+  return '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">\n'
+    +'<score-partwise version="4.0"><work><work-title>'+esc(o.title)+'</work-title></work><identification><encoding><software>Play it back</software></encoding></identification>'
+    +'<part-list><score-part id="P1"><part-name>'+esc(o.part||'Violin')+'</part-name></score-part></part-list><part id="P1">\n'
+    +bars.map((b,i)=>'<measure number="'+(i+(pick?0:1))+'"'+(i===0&&pick?' implicit="yes"':'')+'>'+(i?'':head)+b.map(note).join('')+'</measure>\n').join('')+'</part></score-partwise>\n';
 }
 
 // Line up what was played with the target, allowing for missed and extra notes.
@@ -1401,6 +1592,18 @@ function stretch(x, rate){
 
 
 (() => {
+  // Targets are written in LilyPond now: convert stored ones in the old notation once (exercises,
+  // routine, the current target, the piece, and the progress / recurring-problem records keyed by them)
+  (function migrateTargets(){
+    const conv=x=>typeof x==='string' && isOldTarget(x) ? oldToLy(x) : x;
+    const edit=(k,f)=>{ try{ const v=JSON.parse(localStorage.getItem(k)||'null'); if(v===null) return; const w=f(v); if(w) localStorage.setItem(k,JSON.stringify(w)); }catch(e){} };
+    const keys=o=>{ let ch=false; const r={}; for(const k in o){ const n=conv(k); if(n!==k) ch=true; r[n]=o[k]; } return ch ? r : null; };
+    edit('pib-exercises', a=>Array.isArray(a) && a.some(x=>conv(x.str)!==x.str) ? a.map(x=>({...x, str:conv(x.str)})) : null);
+    edit('pib-routine', r=>r.items && r.items.some(x=>conv(x.str)!==x.str) ? {...r, items:r.items.map(x=>({...x, str:conv(x.str)}))} : null);
+    edit('pib-settings', st=>st.target && conv(st.target)!==st.target ? {...st, target:conv(st.target)} : null);
+    edit('pib-piece', pc=>pc.str && conv(pc.str)!==pc.str ? {...pc, str:conv(pc.str)} : null);
+    edit('pib-progress', keys); edit('pib-issues', keys);
+  })();
   const $ = id => document.getElementById(id);
   const orb=$('orb'), stateText=$('stateText'), hint=$('hint'), timer=$('timer');
   const thr=$('thr'), sil=$('sil'), rep=$('rep'), auto=$('auto'), bpm=$('bpm'), autoBpm=$('autoBpm'), clefSel=$('clef');
@@ -1462,7 +1665,8 @@ function stretch(x, rate){
       let buf; try{ buf=new AudioBuffer({length:n, sampleRate:r.sr, numberOfChannels:1}); }
       catch(e){ const OC=window.OfflineAudioContext||window.webkitOfflineAudioContext; buf=new OC(1,1,r.sr).createBuffer(1,n,r.sr); }
       const x=buf.getChannelData(0); for(let i=0;i<n;i++) x[i]=pcm[i]/(pcm[i]<0?0x8000:0x7fff);
-      return {id:r.id, buffer:buf, dur:r.dur, audioStart:r.audioStart, barStartAbs:r.barStartAbs, metro:r.metro, target:r.target, A:r.A, restored:true};
+      const tg = r.target && isOldTarget(r.target.str) ? {...r.target, str:oldToLy(r.target.str)} : r.target;
+      return {id:r.id, buffer:buf, dur:r.dur, audioStart:r.audioStart, barStartAbs:r.barStartAbs, metro:r.metro, target:tg, A:r.A, restored:true};
     }).filter(t=>!takes.some(k=>k.id===t.id));
     takeCounter=Math.max(takeCounter, ...back.map(t=>t.id));
     const fresh=takes.length>0;
@@ -1525,9 +1729,16 @@ function stretch(x, rate){
     str=(str||'').trim();
     if(!str){ target=null; }
     else {
+      if(isOldTarget(str)) str=oldToLy(str);
       const t=parseTarget(str);
-      if(t.error){ if(!quiet) $('targetErr').textContent='“'+t.error+'” isn’t a note. Use letters A–G, # or b, an optional octave number, and :beats for a length (G3:2, r:1 for a rest).'; return false; }
-      if(!t.notes.length) target=null; else target={str, notes:t.notes, hasOct:t.hasOct, durs:t.durs, onsets:t.onsets, meter:t.meter};
+      if(t.error){ if(!quiet) $('targetErr').textContent='“'+t.error+'” isn’t a note. Write notes as in LilyPond: c d e f g a b, fis = F♯, bes = B♭, ’ and , for octaves, 4 = quarter, 8 = eighth, 2. = dotted half, r for a rest.'; return false; }
+      if(!t.notes.length) target=null; else target={str, notes:t.notes, names:t.names, hasOct:t.hasOct, durs:t.durs, onsets:t.onsets, meter:t.meter};
+      // bar checks (|) that don't fall on a barline: a typo in the lengths, most likely
+      if(target && t.checks && t.checks.length && !quiet){
+        const bar=t.meter ? lyBeats(t.meter) : metro.bpb, off=t.checks.findIndex(x=>Math.abs(x/bar-Math.round(x/bar))>1e-6);
+        if(off>=0){ const prev=off ? t.checks[off-1] : (t.onsets ? 0 : 0), got=t.checks[off]-Math.floor(prev/bar+1e-6)*bar;
+          $('targetErr').textContent='Bar '+(off+1)+' adds up to '+(+got.toFixed(2))+' beats, not '+bar+'. Used anyway.'; $('targetBtn').classList.toggle('on', true); return 'warn'; }
+      }
     }
     $('targetErr').textContent='';
     $('targetBtn').classList.toggle('on', !!target);
@@ -1868,7 +2079,7 @@ function stretch(x, rate){
     const [n,d]=target.meter.split('/'), b=n*4/d;
     if(b>=2 && b<=6 && b%1===0 && b!==metro.bpb){ metro.bpb=b; $('bpb').value=b; renderMetro(); }
   }
-  const useTarget=()=>{ if(setTarget($('targetIn').value)){ followMeter(); streak=0; setTimeout(refreshDrone,0); shownTake=null; sheetView='result'; openTarget(false); save(); renderTakes(); renderSheet(); } };
+  const useTarget=()=>{ const ok=setTarget($('targetIn').value); if(ok){ followMeter(); streak=0; setTimeout(refreshDrone,0); shownTake=null; sheetView='result'; if(ok!=='warn') openTarget(false); save(); renderTakes(); renderSheet(); } };
   $('targetUse').onclick=useTarget;
   $('targetSave').onclick=()=>{
     const str=$('targetIn').value.trim(); if(!str) return;
@@ -2987,7 +3198,7 @@ function stretch(x, rate){
     const key=keyOf(target.notes);
     hl={take:null, target:true, els:drawStaff(targetEvents(target), key, null, tBeats(target)), cur:-1};
     $('notelist').innerHTML = target.sight ? '<div class="sightbar"><span class="tx"><b>Read it, then play</b><small>Sight-reading level '+target.sight.level+' · no listening first</small></span></div>'
-      : HEAR+progressHTML(target.str)+SERIES_LINK;
+      : '<div class="hearrow">'+HEAR+MXBTN+'</div>'+progressHTML(target.str)+SERIES_LINK;
   }
 
   function renderResult(t){
@@ -3096,7 +3307,8 @@ function stretch(x, rate){
 
   // ---- sharing a take ----
   let lastPng=null;
-  const SHARE='<button class="share"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>Share</button>'
+  const MXBTN='<button class="share mx-btn" aria-label="Save as MusicXML, to open in MuseScore and other notation programs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>MusicXML</button>';
+  const SHARE=MXBTN+'<button class="share"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>Share</button>'
     + '<button class="share report-btn" aria-label="Report a problem with this take"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>Report</button>';
   function makeShareImage(){
     lastPng=null;
@@ -3132,6 +3344,26 @@ function stretch(x, rate){
     }
     files.forEach(f=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(f); a.download=f.name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500); });
   }
+  // MusicXML: the take as written on its sheet, or the target notes
+  function saveFile(blob, name){
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
+  }
+  function exportMusicXML(t){
+    let o;
+    const part=$('instr').selectedOptions[0].text;
+    if(t && t.notes && t.notes.length){
+      const {q, tempo, beats}=rhythmOf(t);
+      o={title:'Take '+t.id, ev:q.map(e=>{ const sp=spell(e.midi,t.key); return {...e, name:sp.L+(sp.a>0?'#':sp.a<0?'b':'')+sp.oct}; }), key:t.key, meter:beats+'/4', bpm:tempo};
+    } else if(target){
+      o={title:$('targetName').value.trim() || (rtItem()&&rtItem().name) || 'Exercise', ev:targetEvents(target).map((e,i)=>({...e, name:target.names&&target.names[i]})),
+        key:keyOf(target.notes), meter:target.meter || (target.durs ? metro.bpb+'/4' : '4/4'), bpm:target.durs && metro.on ? metro.bpm : 0};
+    } else return;
+    o.part=part; o.clef=clefFor(o.ev.map(e=>e.midi)); if(o.clef==='auto') o.clef=o.ev.length && o.ev.map(e=>e.midi).sort((a,b)=>a-b)[o.ev.length>>1]<57 ? 'bass' : 'treble';
+    const name=(o.title.replace(/[\/:*?"<>|]+/g,'').trim()||'score').slice(0,60)+'.musicxml';
+    saveFile(new Blob([toMusicXML(o)],{type:'application/vnd.recordare.musicxml+xml'}), name);
+  }
+  $('sheet').addEventListener('click',e=>{ if(!e.target.closest('.mx-btn')) return; e.stopPropagation(); exportMusicXML(shownTake); }, true);
   $('sheet').addEventListener('click',e=>{
     if(!shownTake) return;
     if(e.target.closest('.astarget')){ e.stopPropagation(); takeAsTarget(shownTake); return; }
@@ -3142,13 +3374,14 @@ function stretch(x, rate){
   // ---- a take's transcription as target notes: the notes and rhythm as written (as on the sheet),
   // not how they were tuned or timed. Rests between notes are kept; octaves only where needed.
   function targetString(t){
-    const {q}=rhythmOf(t), seq=[], durs=[];
+    const {q, beats}=rhythmOf(t), seq=[], durs=[];
     q.forEach((e,i)=>{
       if(i>0 && e.s>q[i-1].e){ seq.push({rest:true}); durs.push((e.s-q[i-1].e)/4); }
       const {L,a,oct}=spell(e.midi,t.key);
       seq.push({midi:e.midi, name:L+(a>0?'#':a<0?'b':'')+oct}); durs.push((e.e-e.s)/4);
     });
-    return compactTarget(seq, durs);
+    if(q.length && q[0].s%(beats*4)){ seq.unshift({rest:true}); durs.unshift((q[0].s%(beats*4))/4); }   // where the first bar starts
+    return compactTarget(seq, durs, {meter:beats+'/4', key:KEYS.includes(t.key) ? t.key.name : null});
   }
   function takeAsTarget(t){
     if(!t.notes || !t.notes.length) return;

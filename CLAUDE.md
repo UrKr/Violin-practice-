@@ -12,7 +12,7 @@ Hosted on GitHub Pages from the `main` branch. Changes should be committed to `m
 - **Rhythm:** auto tempo, manual tempo, "first note is a ♪/♩/♩./𝅗𝅥" mode, or the metronome grid.
 - **Metronome:** pulsing ring + beat dots; optionally a click (headphones only, or the mic hears it)
   or vibration (Android). With it on, takes snap to bars and playback starts on the next downbeat.
-- **Target mode:** player types notes (`G3 A B C4 D E F# G`); takes are aligned to the target
+- **Target mode:** player types notes in LilyPond notation (`g4 a b c d e fis g`); takes are aligned to the target
   (edit-distance alignment, octave-free if no octave typed) and coloured green / amber (out of tune) /
   red (wrong, played note shown) / grey (missed). Saved exercises in localStorage.
 - **Extras:** tuning reference A=438–445, half-speed playback (WSOLA time-stretch, pitch kept),
@@ -21,8 +21,10 @@ Hosted on GitHub Pages from the `main` branch. Changes should be committed to `m
 - **Playback & feedback:** the note being played is highlighted, with a length bar (written vs held).
   Written feedback under the sheet (sharp/flat notes, too long/short notes, wrong/missed notes).
   Settings → Feedback switches: written feedback, intonation, rhythm, highlight while playing.
-- **Set as target:** turns a take's transcription (notes as written, octaves only where needed) into
-  target notes, via the target panel so it can be edited or saved as an exercise.
+- **Set as target:** turns a take's transcription (notes as written, with its time and key signature)
+  into target notes, via the target panel so it can be edited or saved as an exercise.
+- **MusicXML:** import a score (notes panel > Piece) and export a take's transcription or the target
+  (MusicXML button) to open in MuseScore etc.
 - **Pedal:** optional (Settings → Pedal). Bluetooth page turners act as keyboards: right pedal
   (→ ↓ PageDown Space Enter) = the big button, left pedal (← ↑ PageUp) = play the take again.
 
@@ -94,10 +96,20 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
 ## Practice tools
 - **Instruments** (Settings > Pitch): violin, viola (alto clef, C G D A), cello (bass/tenor clef, C G D A).
   Tuner strings, drone octave and the generator's lowest note follow it.
-- **Target notes syntax:** `G3 A B C4` (octave optional: nearest to the previous note). A length in beats
-  can follow, carried over until it changes: `G3:1 A B D:2`, `A:1/2`, rests `r:1`. Without lengths a
-  target is pitch only. Optional `M:3/4` (time signature; sets the metronome's beats per bar) and `K:D`
-  (key signature, C G D A E F Bb Eb Ab) come from imported pieces. Rhythm is judged against the metronome tempo (if the take used it) or the
+- **Target notes: LilyPond notation** (`parseLy`, written by `writeLy` / `compactTarget`):
+  `\relative { \time 3/4 \key d \major r2 a'4 | d e8 fis g4 | a2.~ | a4 r b }`. Dutch names (fis, bes,
+  es, as; f# and bb also read), ' and , octaves, \relative / \fixed / absolute, lengths 1-128 with dots
+  carried over, r/R/s rests, ~ ties (joined into one note), \tuplet / \times, <chords> (top note),
+  | bar checks (a bar that doesn't add up is a warning, not an error), \time (sets the metronome's beats
+  per bar), \key (major keys C G D A E F Bb Eb Ab and their minors), \partial; slurs, articulations,
+  dynamics, fingerings, clef, tempo, header blocks ignored; `<<` and `\\` (several voices) not supported.
+  Bar checks without \time set the meter (a short first bar = pickup). Plain notes without braces or
+  \relative are relative from f' (first note in octave 4) and leave the octave free when judging
+  (`hasOct`); without any lengths a target is pitch only. The app always writes `\relative { ... }`
+  with bar checks when it knows the meter. Triplets are judged exactly but drawn rounded to sixteenths.
+  The first notation (`G3:1 A B C4`, `parseOldTarget`) is still read: stored exercises, routine,
+  settings, piece, progress and issue keys are converted once at start (`migrateTargets`), old links
+  and restored takes on the fly (`oldToLy`). Rhythm is judged against the metronome tempo (if the take used it) or the
   best-fitting tempo: held vs written length (+/-25%) and early/late (>= 1/4 beat), see `targetRhythm`.
 - **Generator** (notes panel): scales (major, three minors), arpeggios, broken thirds, 1-3 octaves,
   spelled from the key (`makeScale`), written compactly with `compactTarget`.
