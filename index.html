@@ -791,9 +791,27 @@ function detectNotes(data, sr, A4, detail=0, low=28){
     for(let f=u.a+12; f<u.b-8; f++){
       if(!onset[f]) continue;
       let mn=Infinity; for(let k=f-6;k<f;k++) mn=Math.min(mn,rms[k]);
-      if(mn<med*0.45 && f-a>=12){ notes.push({midi:u.m,a,b:f-1,art}); a=f; art=true; }
+      // a dip well below the note's level, or below a third of the note just before it (a soft second
+      // note after a loud first one pulls the median down: D D re-bowed in an arpeggio)
+      let pk=0; for(let k=a;k<f-6;k++) pk=Math.max(pk,rms[k]);
+      let avg=0; if(f+15<=u.b) for(let k=f;k<f+15;k++) avg+=rms[k]/15;   // (the new note holds on; a fading one only swells)
+      if((mn<med*0.45 || (mn<pk*0.33 && avg>=pk*0.35)) && f-a>=12){ notes.push({midi:u.m,a,b:f-1,art}); a=f; art=true; }
     }
     notes.push({midi:u.m,a,b:u.b,art});
+    // a soft re-bow rises too gently to count as an onset: a dip to under a third of the note's peak
+    // before it, then a rise of 1.5x within 80 ms, is a new note too (split at the bottom of the dip)
+    {
+      const last=notes.pop(); let a2=last.a;
+      for(let f=a2+12; f<u.b-15; f++){            // (at least 0.15 s on each side: not a slip or a tail)
+        let lo=true; for(let k=f-4;k<=f+4;k++) if(rms[k]<rms[f]) lo=false;
+        if(!lo) continue;
+        let pk=0; for(let k=a2;k<f-4;k++) pk=Math.max(pk,rms[k]);
+        let up=0; for(let k=f+1;k<=Math.min(u.b,f+8);k++) up=Math.max(up,rms[k]);
+        let avg=0; for(let k=f+1;k<=f+15;k++) avg+=rms[k]/15;     // a new note holds on; a fading one only swells
+        if(rms[f]<pk*0.33 && up>rms[f]*1.5 && avg>=pk*0.35){ notes.push({midi:u.m,a:a2,b:f-1,art:last.art&&a2===last.a}); a2=f; }
+      }
+      notes.push({midi:u.m,a:a2,b:last.b,art:a2===last.a?last.art:true});
+    }
   }
   // A note that, over most of its length, repeats far better (10x) at twice its period is really an
   // octave lower: the open-G "phantom octave". Same for three times the period (an octave and a fifth).
@@ -807,6 +825,29 @@ function detectNotes(data, sr, A4, detail=0, low=28){
     if(drop){ for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && r[f]===o.midi) pitch[f]-=drop; o.midi-=drop; }
   }
   for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6 && !notes[i].art){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; } }
+  // A piece at an open string's pitch (the strings are fifths up from the lowest: violin G3 D4 A4 E5) well
+  // below both its neighbours is that string ringing under a higher note (left ringing, or in sympathy):
+  // G4 over a ringing G reads G3, the end of D5 into G5 reads G3. Where an octave or two up puts it within a
+  // fourth of both neighbours (or on one of them), and the sound repeats at that period, it goes up. Done
+  // before the blip clean-up, which would otherwise take a real note for an octave slip of that G3.
+  if(low>28){
+    const open=[0,7,14,21].map(k=>low+2+k), shr=(o,L)=>{ let s2=0,c=0; for(let f=o.a+1; f<o.b; f+=2){ const st=f*hop; if(st+W+L>=n) break; let dd=0,e=0; for(let j=0;j<W;j++){ const v=x[st+j]-x[st+j+L]; dd+=v*v; e+=x[st+j]*x[st+j]+x[st+j+L]*x[st+j+L]; } s2+=dd/(e+1e-12); c++; } return c ? s2/c : 9; };
+    for(let i=0;i<notes.length;i++){
+      const o=notes[i], p=notes[i-1], q=notes[i+1];
+      if(!open.includes(o.midi) || !p || !q || p.a===undefined || o.a-p.b>30 || q.a-o.b>30) continue;
+      if(Math.min(p.midi,q.midi)-o.midi<5) continue;
+      for(const k of [12,24]){
+        const m=o.midi+k;
+        if(!((Math.abs(m-p.midi)<=5 && Math.abs(m-q.midi)<=5) || m===p.midi || m===q.midi)) continue;
+        if(m<Math.min(p.midi,q.midi) || m>Math.max(p.midi,q.midi)) continue;   // up there it lies on the line (D4 G4 B4), not off it (E4 G4 E4: bariolage)
+        if((m===p.midi || m===q.midi) && o.art) continue;                       // with its own bow stroke it's a real octave leap (D4 D5)
+        if(shr(o, Math.round(fs/(A4*Math.pow(2,(m-69)/12))))>0.8) continue;   // the sound doesn't repeat up there
+        for(let f=o.a;f<=o.b;f++) if(pitch[f]!==null && Math.abs(pitch[f]-o.midi)<0.8) pitch[f]+=k;
+        o.midi=m; break;
+      }
+    }
+    for(let i=1;i<notes.length;i++){ if(notes[i].midi===notes[i-1].midi && notes[i].a-notes[i-1].b<=6 && !notes[i].art){ notes[i-1].b=notes[i].b; notes.splice(i,1); i--; } }
+  }
   // clean up blips: very short notes, and short octave jumps, get absorbed by a neighbour.
   // How short is 'very short': clean = under 40% of a typical note here (0.1-0.2 s), so a slide or a
   // scratchy start in a slow passage goes, while real notes in a fast passage stay.

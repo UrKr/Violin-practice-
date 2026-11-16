@@ -61,6 +61,9 @@ const cases = [
   ['scale top G4 over a G3 at -6 dB', ring(take([[62, 1], [64, 1], [66, 1], [67, 2]]), 55, 3, 0.5, 99), 'D4 E4 F♯4 G4'],
   // the melody decides: notes a sixth or more from both neighbours, steps an octave away, are in the wrong octave
   ['run of two over a G3 at -6 dB', ring(take([[64, 1], [66, 1], [67, 1], [69, 1], [71, 1], [72, 1]]), 55, 2, 0.5, 99, 4), 'E4 F♯4 G4 A4 B4 C5'],
+  // a quick arpeggio with the open G ringing under its top half (a real report: G4 read G3, D5 eaten by a G3 fragment)
+  ['quick arpeggio over a ringing G', ring(take([[59, 0.5], [62, 0.5], [67, 0.5], [71, 0.5], [74, 0.4], [79, 1]], { amps: WEAK }), 55, 1, 0.3, 2), 'B3 D4 G4 B4 D5 G5'],
+  ['quick arpeggio over a ringing G (2)', ring(take([[59, 0.5], [62, 0.5], [67, 0.5], [71, 0.5], [74, 0.4], [79, 1]]), 55, 1, 0.3, 2), 'B3 D4 G4 B4 D5 G5'],
   // ...but real leaps stay: sixths across strings, a passage of rising sixths, an octave study
   ['real sixths across strings', take([[55, 1], [64, 1], [55, 1], [64, 1], [62, 1], [71, 1], [62, 2]], { amps: WEAK }), 'G3 E4 G3 E4 D4 B4 D4'],
   ['rising sixths', take([[55, 1], [64, 1], [57, 1], [66, 1], [59, 1], [67, 1], [60, 1], [69, 2]]), 'G3 E4 A3 F♯4 B3 G4 C4 A4'],

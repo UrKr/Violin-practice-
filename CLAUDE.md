@@ -108,7 +108,12 @@ that jumps 9+ semitones away from the notes on both sides the same way, while an
 within a fourth of them, moves an octave (single notes first). Not when it has the same note name as a
 neighbour (a real octave leap), and the sound must not disagree (up: it repeats at the higher period;
 down: it doesn't repeat cleanly at its own period but does at twice it); with 2+ other big leaps in the
-take (octave studies, broken chords) the sound has to agree clearly. Real sixths across strings stay. Limitation: a G3 as loud as
+take (octave studies, broken chords) the sound has to agree clearly. Real sixths across strings stay. Before the blip clean-up, a piece at an open string's pitch well below both
+neighbours, which an octave or two up lies on the line between them (D4 [G3] B4 -> G4; D5 [G3] G5 -> G5), goes
+up when the sound repeats there; without this the clean-up took a real D5 for an octave+fifth slip of the
+ringing G3 (report take221, quick arpeggio). Re-bowed repeated notes split on a dip below the note's median
+level, or below a third of the note just before it when the new note then holds at 35%+ of that peak for
+0.15 s (a soft second D after a loud first one; a fading note that only swells doesn't split). Limitation: a G3 as loud as
 -6 dB under a G4 between notes a fifth away (D4 G4 D4) can't be told from a real G3. Test signals keep only ~0.35 s of silence at each end, like
 real takes: offline signals with long silences hid a noise-floor bug once. Also check the real reports
 (`tools/replay.mjs`) - a real violin's strong harmonics and room echo behave differently from synthesis.
