@@ -486,7 +486,11 @@ dialog.report .fine{color:var(--muted); font-size:.8rem; margin:0 0 8px}
           <div class="set" title="Bluetooth headphones play the click late, so you play late against the beat. Measure: play 8 short notes with the clicks; takes then line up with what you heard."><span>Sync</span>
             <span class="check syncrow"><button class="share" id="syncGo">Measure</button><button class="share" id="syncMinus" aria-label="10 ms less">−</button><output id="syncOut">0 ms</output><button class="share" id="syncPlus" aria-label="10 ms more">+</button></span></div>
           <div class="set"><label for="bpb">Beats per bar</label>
-            <select id="bpb"><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option></select></div>
+            <select id="bpb"><option>1</option><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option></select></div>
+          <div class="set" title="The beat the metronome counts. From the notes: their time signature (6/8 = 2 dotted quarters, 2/2 = 2 halves)"><label for="beatUnit">Beat</label>
+            <select id="beatUnit"><option value="auto">From the notes</option><option value="1">Quarter ♩</option><option value="0.5">Eighth ♪</option><option value="1.5">Dotted quarter ♩.</option><option value="2">Half 𝅗𝅥</option></select></div>
+          <div class="set adv"><label for="beatSub">Clicks</label>
+            <select id="beatSub"><option value="1">Beats only</option><option value="2">+ halves of the beat</option><option value="3">+ thirds (triplets)</option><option value="4">+ quarters of the beat</option></select></div>
           <div class="set adv"><label for="bpm">Tempo</label><input type="range" id="bpm" min="40" max="200" step="1" value="90"><output id="bpmVal"></output></div>
           <div class="set adv"><span></span><label class="check"><input type="checkbox" id="autoBpm" checked> Detect from my playing</label></div>
           </section>
@@ -1980,10 +1984,26 @@ function renderFix(x, sr, plan){
   }
 
   // ---- metronome (visual only) ----
-  const metro={on:false, bpm:72, bpb:4, t0:0};
+  // bpm and bpb count the player's beat, unit long (in quarter notes: 1 quarter, 0.5 eighth, 1.5 dotted quarter,
+  // 2 half); beatSel 'auto' takes it from the notes' time signature; sub = clicks per beat (1 = beats only).
+  // Everything that analyses takes works in quarters: qLen / qBpm / qBpb / meterStr.
+  const metro={on:false, bpm:72, bpb:4, t0:0, unit:1, beatSel:'auto', sub:1};
   let clockReady=false;
   const clock=()=> (ac && clockReady) ? ac.currentTime : performance.now()/1000;
-  const beatLen=()=>60/metro.bpm;
+  const beatLen=()=>60/metro.bpm;                     // one counted beat (clicks, the ring, silence in beats)
+  const qLen=()=>beatLen()/metro.unit, qBpm=()=>metro.bpm*metro.unit, qBpb=()=>metro.bpb*metro.unit;
+  const meterStr=()=> metro.unit===1.5 ? (metro.bpb*3)+'/8' : metro.unit===0.5 ? metro.bpb+'/8' : metro.unit===2 ? metro.bpb+'/2' : metro.bpb+'/4';
+  // a time signature's beat: 6/8 9/8 12/8 in dotted quarters, other x/8 in eighths, x/2 in halves, x/4 in quarters
+  function meterBeat(m){ const [ns,d]=m.split('/'), n=ns.split('+').reduce((a,x)=>a+ +x,0);
+    if(+d===8 && n%3===0 && n>=6) return {unit:1.5, bpb:n/3};
+    if(+d===8) return {unit:0.5, bpb:n}; if(+d===2) return {unit:2, bpb:n}; if(+d===16) return {unit:0.25, bpb:n};
+    return {unit:4/ +d * 1, bpb:n}; }
+  // a new beat keeps the tempo in quarters (♩ = 72 becomes ♩. = 48)
+  function setBeat(unit, bpb){
+    if(unit!==metro.unit){ const q=qBpm(); metro.unit=unit; setMetroBpm(Math.round(q/unit)); }
+    if(bpb!==undefined) metro.bpb=Math.max(1,Math.min(12,bpb));
+    $('bpb').value=metro.bpb; renderMetro();
+  }
   function setMetroBpm(v){
     v=Math.max(30,Math.min(240,Math.round(v)));
     if(metro.on){ const now=clock(), pos=(now-metro.t0)/beatLen(); metro.bpm=v; metro.t0=now-pos*beatLen(); }
@@ -1997,6 +2017,7 @@ function renderFix(x, sr, plan){
     $('mToggle').innerHTML='<svg class="qn" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="9.5" cy="17.5" rx="4" ry="3" transform="rotate(-20 9.5 17.5)" fill="currentColor"/><path d="M13.1 17V3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'+metro.bpm;
     $('mToggle').setAttribute('aria-pressed',metro.on);
     $('mToggle').setAttribute('aria-label', metro.on?'Metronome on, '+metro.bpm+' beats per minute. Tap to turn off':'Metronome off. Tap to turn on');
+    $('mToggle').innerHTML=(NOTE_SVG[metro.unit*4]||NOTE_SVG[4]).replace('<svg','<svg class="qn" aria-hidden="true"')+' '+metro.bpm;
     const d=$('dots'); if(d.children.length!==metro.bpb){ d.innerHTML='<i></i>'.repeat(metro.bpb); }
     updateLabels();
   }
@@ -2044,10 +2065,10 @@ function renderFix(x, sr, plan){
       if(isOldTarget(str)) str=oldToLy(str);
       const t=parseTarget(str);
       if(t.error){ if(!quiet) $('targetErr').textContent='“'+t.error+'” isn’t a note. Write notes as in LilyPond: c d e f g a b, fis = F♯, bes = B♭, ’ and , for octaves, 4 = quarter, 8 = eighth, 2. = dotted half, r for a rest.'; return false; }
-      if(!t.notes.length) target=null; else target={str, notes:t.notes, names:t.names, hasOct:t.hasOct, durs:t.durs, onsets:t.onsets, meter:t.meter};
+      if(!t.notes.length) target=null; else target={str, notes:t.notes, names:t.names, hasOct:t.hasOct, durs:t.durs, onsets:t.onsets, meter:t.meter, tempo:t.tempo||0};
       // bar checks (|) that don't fall on a barline: a typo in the lengths, most likely
       if(target && t.checks && t.checks.length && !quiet){
-        const bar=t.meter ? lyBeats(t.meter) : metro.bpb, off=t.checks.findIndex(x=>Math.abs(x/bar-Math.round(x/bar))>1e-6);
+        const bar=t.meter ? lyBeats(t.meter) : qBpb(), off=t.checks.findIndex(x=>Math.abs(x/bar-Math.round(x/bar))>1e-6);
         if(off>=0){ const prev=off ? t.checks[off-1] : (t.onsets ? 0 : 0), got=t.checks[off]-Math.floor(prev/bar+1e-6)*bar;
           $('targetErr').textContent='Bar '+(off+1)+' adds up to '+(+got.toFixed(2))+' beats, not '+bar+'. Used anyway.'; $('targetBtn').classList.toggle('on', true); return 'warn'; }
       }
@@ -2429,11 +2450,17 @@ function renderFix(x, sr, plan){
     if(open){ $('settings').open=false; if(tunerOpen) openTuner(false); if(statsOpen) openStats(false); $('targetIn').value=target&&!target.ear&&!target.sight?target.str:''; renderSaved(); renderRoutineList(); }
   }
   $('targetBtn').onclick=e=>{ e.stopPropagation(); openTarget($('targetPanel').hidden); };
-  // a target with a time signature sets the metronome's beats per bar (quarter beats, 2-6)
+  // the notes' time signature sets the metronome's beat and beats per bar (Settings > Tempo > Beat = From the notes)
   function followMeter(){
-    if(!target || !target.meter) return;
-    const b=lyBeats(target.meter);
-    if(b>=2 && b<=6 && b%1===0 && b!==metro.bpb){ metro.bpb=b; $('bpb').value=b; renderMetro(); }
+    if(target && target.meter && metro.beatSel==='auto'){
+      const mb=meterBeat(target.meter);
+      if(mb.bpb>=1 && mb.bpb<=12 && (mb.unit!==metro.unit || mb.bpb!==metro.bpb)) setBeat(mb.unit, mb.bpb);
+    }
+    applyNotesTempo();
+  }
+  // \tempo 4 = 72 in the notes: the metronome takes that tempo (in its own beat)
+  function applyNotesTempo(){
+    if(target && target.tempo>0 && target.durs){ const v=Math.round(target.tempo/metro.unit); if(v!==metro.bpm){ setMetroBpm(v); toast('Tempo from the notes: '+v+' bpm'); } }
   }
   const useTarget=()=>{ if(!$('targetIn').value.trim() && target) toast('No notes to play: just listening');
     const ok=setTarget($('targetIn').value); if(ok){ followMeter(); streak=0; setTimeout(refreshDrone,0); shownTake=null; sheetView='result'; if(ok!=='warn') openTarget(false); save(); renderTakes(); renderSheet(); } };
@@ -2504,7 +2531,7 @@ function renderFix(x, sr, plan){
     lBuf.fill(0);
     const tt=target && !target.ear ? target : null;
     live={hist:[], note:null, pm:null, start:0, idx:-1, peak:0, dipped:false,
-      spb: tt && tt.durs ? (metro.on ? 60/metro.bpm : (lastTargetSpb[tt.str]||0)) : 0};
+      spb: tt && tt.durs ? (metro.on ? qLen() : (lastTargetSpb[tt.str]||0)) : 0};
   }
   function liveFeed(buf, now){
     lBuf.copyWithin(0,buf.length); lBuf.set(buf, lBuf.length-buf.length);
@@ -2825,7 +2852,7 @@ function renderFix(x, sr, plan){
   function passageStr(tt, a, b){
     const notes=tt.notes.slice(a,b+1), key=keyOf(tt.notes);
     let durs=null, onsets=null;
-    if(tt.durs){ const bar=tt.meter ? lyBeats(tt.meter) : metro.bpb, lead=tt.onsets[a]%bar;
+    if(tt.durs){ const bar=tt.meter ? lyBeats(tt.meter) : qBpb(), lead=tt.onsets[a]%bar;
       durs=tt.durs.slice(a,b+1); onsets=tt.onsets.slice(a,b+1).map(o=>o-tt.onsets[a]+lead); }
     return writeLy({notes, names:tt.names?tt.names.slice(a,b+1):null, durs, onsets, meter:tt.meter, key:keyName(key), bare:!tt.hasOct});
   }
@@ -2928,9 +2955,9 @@ function renderFix(x, sr, plan){
   $('droneNote').addEventListener('change',()=>{ save(); refreshDrone(); });
 
   // remember settings between visits
-  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:(t=>t&&!t.ear&&!t.sight&&!t.drill?t.str:'')(coach.full||target),coach:coach.on,A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked,sync:syncMs,mic:micId,out:outId,model:model.on,modelHow:$('modelHow').value,gen:Object.fromEntries(['genKey','genType','genOct','earLen','drillType','backupTakes'].map(id=>[id, $(id).type==='checkbox' ? $(id).checked : $(id).value]))})); }catch(e){} }
+  function save(){ try{ localStorage.setItem('pib-settings',JSON.stringify({bpm:metro.bpm,bpb:metro.bpb,unit:metro.unit,beatSel:metro.beatSel,sub:metro.sub,thr:thr.value,sil:sil.value,rep:rep.value,clef:clefSel.value,first:firstVal,target:(t=>t&&!t.ear&&!t.sight&&!t.drill?t.str:'')(coach.full||target),coach:coach.on,A:tuningSel.value,ladder:$('ladder').value,step:$('ladderStep').value,drone:$('droneNote').value,metroOn:metro.on,manualBpm:bpm.value,autoBpm:autoBpm.checked,half:halfSpeed,fb,pedal:$('pedal').value,inton:$('inton').value,instr:$('instr').value,beat:$('beatMode').value,autoSens:$('autoSens').checked,detail:$('detail').value,zen:document.body.classList.contains('zen'),barge:$('bargeIn').checked,sync:syncMs,mic:micId,out:outId,model:model.on,modelHow:$('modelHow').value,gen:Object.fromEntries(['genKey','genType','genOct','earLen','drillType','backupTakes'].map(id=>[id, $(id).type==='checkbox' ? $(id).checked : $(id).value]))})); }catch(e){} }
   try{ const s=JSON.parse(localStorage.getItem('pib-settings')||'null');
-    if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); coach.on=!!s.coach; $('coachBtn').setAttribute('aria-pressed',coach.on); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
+    if(s){ metro.bpm=s.bpm||72; metro.bpb=s.bpb||4; if([0.25,0.5,1,1.5,2].includes(s.unit)) metro.unit=s.unit; if(s.beatSel) metro.beatSel=String(s.beatSel); if(s.sub>=1 && s.sub<=4) metro.sub=s.sub; thr.value=s.thr??thr.value; sil.value=s.sil??sil.value; rep.value=s.rep??rep.value; clefSel.value=s.clef||'auto'; $('bpb').value=metro.bpb; firstVal=s.first??'auto'; if(s.target) setTarget(s.target,true); coach.on=!!s.coach; $('coachBtn').setAttribute('aria-pressed',coach.on); if(s.A) tuningSel.value=s.A; if(s.ladder) $('ladder').value=s.ladder; if(s.step) $('ladderStep').value=s.step; if(s.drone) $('droneNote').value=s.drone;
       if(s.metroOn){ metro.on=true; metro.t0=clock()+0.05; }
       if(s.manualBpm) bpm.value=s.manualBpm; if(typeof s.autoBpm==='boolean') autoBpm.checked=s.autoBpm; halfSpeed=!!s.half;
       if(s.fb) for(const k in fb) if(typeof s.fb[k]==='boolean') fb[k]=s.fb[k];
@@ -2947,13 +2974,18 @@ function renderFix(x, sr, plan){
     if(!(s && typeof s.barge==='boolean') && iOSdev) $('bargeIn').checked=false;
   }catch(e){}
   // whatever was restored must be something the controls allow (an old backup, a removed option)
-  metro.bpm=Math.max(30,Math.min(240,Math.round(+metro.bpm)||72)); metro.bpb=Math.max(2,Math.min(6,Math.round(+metro.bpb)||4)); $('bpb').value=metro.bpb;
+  metro.bpm=Math.max(30,Math.min(240,Math.round(+metro.bpm)||72)); metro.bpb=Math.max(1,Math.min(12,Math.round(+metro.bpb)||4)); $('bpb').value=metro.bpb;
   document.querySelectorAll('.panel select, #dock select').forEach(sel=>{ if(sel.selectedIndex<0 && sel.options.length){ const d=[...sel.options].find(o=>o.defaultSelected)||sel.options[0]; sel.value=d.value; } });
   $('bargeIn').addEventListener('change',save);
   // the notes panel's choices are remembered too
   const GEN_IDS=['genKey','genType','genOct','earLen','drillType','backupTakes'];
   GEN_IDS.forEach(id=>$(id) && $(id).addEventListener('change',save));
   $('bpb').addEventListener('change',()=>{ metro.bpb=+$('bpb').value; renderMetro(); save(); });
+  $('beatUnit').value=metro.beatSel; $('beatSub').value=String(metro.sub);
+  $('beatUnit').addEventListener('change',()=>{ metro.beatSel=$('beatUnit').value;
+    if(metro.beatSel==='auto'){ if(target && target.meter) followMeter(); else setBeat(1); } else setBeat(+metro.beatSel);
+    save(); });
+  $('beatSub').addEventListener('change',()=>{ metro.sub=+$('beatSub').value; clickedUpTo=-1; save(); });
   [thr,sil,rep,clefSel,bpm,autoBpm].forEach(el=>el.addEventListener('change',save));
   $('autoSens').addEventListener('change',()=>{ noiseLv=[]; updateLabels(); save(); });
   for(const k in FB_IDS){ const el=$(FB_IDS[k]); el.checked=fb[k];
@@ -3140,7 +3172,7 @@ function renderFix(x, sr, plan){
     if(at>=tt.notes.length-1) return base;                 // the last note is under way
     let rest=0; for(let i=Math.max(0,at); i<tt.notes.length-1; i++) rest=Math.max(rest, tt.onsets[i+1]-(tt.onsets[i]+tt.durs[i]));
     if(rest<=0) return base;
-    const beat = metro.on ? beatLen() : (lastTargetSpb[tt.str] || 60/metro.bpm);
+    const beat = metro.on ? qLen() : (lastTargetSpb[tt.str] || 60/qBpm());
     return Math.max(base, (rest+1)*beat + 0.3);
   }
 
@@ -3208,7 +3240,7 @@ function renderFix(x, sr, plan){
 
     const ab=ac.createBuffer(1,total,sr); ab.copyToChannel(data,0);
     const take={id:++takeCounter, buffer:ab, dur:total/sr, audioStart:recAudioStart,
-      metro: metro.on ? {bpm:metro.bpm, bpb:metro.bpb, t0:metro.t0+($('beatMode').value==='click' ? syncMs/1000 : 0)} : null,   // (the player's sound lands syncMs after the beat)
+      metro: metro.on ? {bpm:qBpm(), bpb:qBpb(), meter:meterStr(), t0:metro.t0+($('beatMode').value==='click' ? syncMs/1000 : 0)} : null,   // (the player's sound lands syncMs after the beat)
       target: target ? {...target} : null};
     sheetView='result';
     if(take.metro){ // the bar the take starts in, from the moment it was triggered
@@ -3255,7 +3287,7 @@ function renderFix(x, sr, plan){
       currentSrc=s;
       const tm=take.metro, rate=(buf===take.buffer)?1:0.5;
       let when=ac.currentTime, offset=0;
-      if(!halfSpeed && metro.on && tm && tm.bpm===metro.bpm && tm.bpb===metro.bpb){
+      if(!halfSpeed && metro.on && tm && tm.bpm===qBpm() && tm.bpb===qBpb()){
         // start on a downbeat, so the take sits on the beat just as it was played
         const bar=metro.bpb*beatLen(), delta=take.audioStart-take.barStartAbs, now=ac.currentTime;
         let k=Math.ceil((now+0.2-delta-metro.t0)/bar), nextBar=metro.t0+k*bar;
@@ -3361,7 +3393,7 @@ function renderFix(x, sr, plan){
   function rhythmOf(t){
     let tempo, beats=4, ref, exact, unfit=false;
     if(t.metro){
-      tempo=t.metro.bpm; beats=t.metro.bpb;
+      tempo=t.metro.bpm; beats=t.metro.meter || t.metro.bpb;
       const six=60/tempo/4, BAR=beats*4;
       const first=Math.round((t.audioStart+t.notes[0].t0-t.metro.t0)/six);
       ref = t.metro.t0 + Math.floor(first/BAR)*BAR*six - t.audioStart;
@@ -3797,7 +3829,7 @@ function renderFix(x, sr, plan){
       if(prev){ if(s<=prev.s) s=prev.s+1; if(prev.e>s) prev.e=s; }    // (triplet sixteenths, 32nds: rounded, but each drawn)
       e=Math.max(e,s+1); return prev={midi:m+shift, s, e}; });
   }
-  const tBeats=tt=> tt && tt.meter ? tt.meter : tt && tt.durs ? metro.bpb : 4;
+  const tBeats=tt=> tt && tt.meter ? tt.meter : tt && tt.durs ? meterStr() : 4;
 
   // Rhythm of a take against a target with lengths. Tempo: the metronome's if the take was played
   // with it, else the one that best fits the take. Each played note: held vs written length, and
@@ -3850,7 +3882,7 @@ function renderFix(x, sr, plan){
       const tt=t.target, key=keyOf(tt.notes), r=judge(alignTarget(tt.notes, t.notes, tt.hasOct), key), R=targetRhythm(t, r), it=r.items;
       const pc=m=>m*100+refCents(m,key);
       const ls=it.filter(x=>x.played).map(x=>x.played.t1-x.played.t0).sort((x,y)=>x-y), med=ls.length ? ls[ls.length>>1] : 0.5;
-      const spb = tt.durs ? (R ? R.spb : 60/(t.metro ? t.metro.bpm : metro.bpm)) : 0;
+      const spb = tt.durs ? (R ? R.spb : 60/(t.metro ? t.metro.bpm : qBpm())) : 0;
       let cur=0;
       for(let i=a;i<=b;i++){
         const x=it[i], p=x.played; let at, len;
@@ -3931,18 +3963,18 @@ function renderFix(x, sr, plan){
   // the first note)
   function modelTimes(tt, beat, onBar){
     const durs=tt.durs || tt.notes.map(()=>1), ons=tt.onsets || tt.notes.map((m,i)=>i);
-    const barB = tt.meter ? lyBeats(tt.meter) : metro.bpb, lead = !tt.durs ? 0 : onBar ? Math.floor(ons[0]/barB)*barB : ons[0], pad = onBar ? 0 : 0.05;
+    const barB = tt.meter ? lyBeats(tt.meter) : qBpb(), lead = !tt.durs ? 0 : onBar ? Math.floor(ons[0]/barB)*barB : ons[0], pad = onBar ? 0 : 0.05;
     return {at:i=>(ons[i]-lead)*beat+pad, len:i=>durs[i]*beat, total:(ons[ons.length-1]-lead+durs[durs.length-1])*beat+0.6};
   }
   // the model as something playTake starts on the next downbeat (with the metronome on)
   async function modelTake(tt){
     const onBar=metro.on, T=modelTimes(tt, modelBeat(), onBar), buf=await renderModel(tt.notes, T.at, T.len, T.total, ac.sampleRate);
-    return onBar ? {id:'model', buffer:buf, metro:{bpm:metro.bpm, bpb:metro.bpb, t0:metro.t0}, audioStart:0, barStartAbs:0} : {id:'model', buffer:buf};
+    return onBar ? {id:'model', buffer:buf, metro:{bpm:qBpm(), bpb:qBpb(), meter:meterStr(), t0:metro.t0}, audioStart:0, barStartAbs:0} : {id:'model', buffer:buf};
   }
   async function hearTarget(notes, durs, onsets){
     ensureAC(); await ac.resume(); anchorClock();
     if(state==='recording') return;
-    const beat=60/metro.bpm, T=modelTimes({notes, durs, onsets}, beat);
+    const beat=qLen(), T=modelTimes({notes, durs, onsets}, beat);
     const rendered=await renderModel(notes, T.at, T.len, T.total);
     if(state==='recording') return;
     playTake({id:'target', buffer:rendered, beat, onsets: durs ? onsets.map(o=>o-onsets[0]) : notes.map((m,i)=>i)}, 1);
@@ -3953,7 +3985,7 @@ function renderFix(x, sr, plan){
   // again, or (Settings > Listening > Model) the take with the model under it, lined up with the take's notes
   // (targetRhythm: its tempo and offset), the model a bit quieter: out-of-tune notes beat, timing shows.
   // The sheet shows the notes to play; the take's analysed result is a tap on its button away. ----
-  const modelBeat=()=> metro.on ? 60/metro.bpm : (target && lastTargetSpb[target.str]) || 60/metro.bpm;
+  const modelBeat=()=> metro.on ? qLen() : (target && lastTargetSpb[target.str]) || qLen();
   async function playModel(){
     if(!target || target.ear || !active || state==='recording') return;
     const mt=await modelTake(target);
@@ -4215,7 +4247,7 @@ function renderFix(x, sr, plan){
       o={title:'Take '+t.id, ev:q.map(e=>{ const sp=spell(e.midi,t.key); return {...e, name:sp.L+(sp.a>0?'#':sp.a<0?'b':'')+sp.oct}; }), key:t.key, meter:beats+'/4', bpm:tempo};
     } else if(target){
       o={title:$('targetName').value.trim() || (rtItem()&&rtItem().name) || 'Exercise', ev:targetEvents(target).map((e,i)=>({...e, name:target.names&&target.names[i]})),
-        key:keyOf(target.notes), meter:target.meter || (target.durs ? metro.bpb+'/4' : '4/4'), bpm:target.durs && metro.on ? metro.bpm : 0};
+        key:keyOf(target.notes), meter:target.meter || (target.durs ? meterStr() : '4/4'), bpm:target.durs && metro.on ? qBpm() : 0};
     } else return;
     o.part=part; o.clef=clefFor(o.ev.map(e=>e.midi)); if(o.clef==='auto') o.clef=o.ev.length && o.ev.map(e=>e.midi).sort((a,b)=>a-b)[o.ev.length>>1]<57 ? 'bass' : 'treble';
     const name=(o.title.replace(/[–—]/g,'-').normalize('NFKD').replace(/[^\w ,.()+-]+/g,'').trim()||'score').slice(0,60)+'.musicxml';   // (plain characters: an en dash made it 'download')
@@ -4401,6 +4433,9 @@ function renderFix(x, sr, plan){
       const o=ac.createOscillator(), g=ac.createGain();
       o.frequency.value=accent?1760:1320; g.gain.setValueAtTime(0,at); g.gain.linearRampToValueAtTime(accent?0.5:0.3,at+0.002); g.gain.exponentialRampToValueAtTime(0.001,at+0.04);
       o.connect(g); g.connect(ac.destination); o.start(at); o.stop(at+0.05);
+      for(let j=1;j<metro.sub;j++){ const t2=at+j*bl/metro.sub, o2=ac.createOscillator(), g2=ac.createGain();   // (subdivisions, soft)
+        o2.frequency.value=2100; g2.gain.setValueAtTime(0,t2); g2.gain.linearRampToValueAtTime(0.12,t2+0.002); g2.gain.exponentialRampToValueAtTime(0.001,t2+0.025);
+        o2.connect(g2); g2.connect(ac.destination); o2.start(t2); o2.stop(t2+0.03); }
       clickedUpTo=k;
     }
   }

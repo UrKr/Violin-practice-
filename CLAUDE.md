@@ -168,7 +168,12 @@ real takes: offline signals with long silences hid a noise-floor bug once. Also 
   entry and optionally the recent takes in one JSON file.
 - **Pitch view:** vibrato rate/width/evenness and bow steadiness (`soundOf`), and Compare with another take.
 - **Metronome** (Settings > Tempo): visual only, click (scheduled on the audio clock; needs headphones so
-  the mic doesn't hear it) or vibrate (Android). **Sync** (`syncMs`, saved in settings): Bluetooth output
+  the mic doesn't hear it) or vibrate (Android). **Beat** (`metro.unit` in quarters: ♩ 1, ♪ 0.5, ♩. 1.5, 𝅗𝅥 2;
+  `metro.beatSel` 'auto' = From the notes: `meterBeat` of the target's \time, 6/8 = 2 x ♩., 2/2 = 2 x 𝅗𝅥) and
+  beats per bar 1-12: `metro.bpm` / `metro.bpb` count that beat (clicks, ring, − / +, Sync); everything that
+  analyses takes is in quarters (`qLen`, `qBpm`, `qBpb`, `meterStr`; `take.metro` = {bpm, bpb in quarters,
+  meter}); `setBeat` keeps the quarter tempo when the beat changes. **Clicks** (`metro.sub`, hidden setting):
+  soft subdivision clicks, 2-4 per beat. `\tempo 4 = 90` in the notes sets the metronome (`applyNotesTempo`). **Sync** (`syncMs`, saved in settings): Bluetooth output
   (and the mic) make the player's sound arrive late against the beat. Measure (`measureSync`): 4-beat
   count-in, then 8 short notes with the clicks; onsets (`calibFeed`, loudness jumps in 128-sample blocks,
   timed like a take) against their beats, median kept unless the spread is over 40 ms; − / + adjust by 10.
